@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0d7a5f">
+<meta name="robots" content="noindex">
+<title>日報 本部管理</title>
+<style>
+:root{--pri:#0d7a5f;--pri2:#e6f4ef;--ink:#1f2933;--sub:#6b7280;--line:#e5e7eb;--bg:#f5f7f6;--card:#fff;--red:#c62828;--redbg:#fdecec;--amber:#b45309;--amberbg:#fff6e5;--blue:#1d4ed8;--bluebg:#eaf0ff;--r:12px}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP","Yu Gothic UI",sans-serif;font-size:15px;-webkit-text-size-adjust:100%}
+button,input,select,textarea{font:inherit;color:inherit}
+h2{font-size:17px;margin:0 0 10px}
+h3{font-size:15px;margin:0;display:flex;justify-content:space-between;align-items:baseline}
+.top{position:sticky;top:0;z-index:20;background:var(--pri);color:#fff;padding:10px 14px;display:flex;align-items:center;gap:8px}
+.top .ttl{font-weight:700;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.badge{display:inline-block;font-size:11px;padding:2px 7px;border-radius:99px;background:#fff3;color:#fff;font-weight:600;white-space:nowrap}
+.card{background:var(--card);border-radius:var(--r);padding:14px;margin:0 0 12px;box-shadow:0 1px 2px #0000000d;border:1px solid var(--line)}
+.row{display:flex;align-items:center;gap:10px;padding:6px 0}
+.row>label,.row>.lbl{flex:0 0 7.5em;color:var(--sub);font-size:14px}
+.row>input,.row>select,.row>.grow{flex:1;min-width:0}
+input[type=text],input[type=date],input[type=month],input[type=password],input[type=url],input[type=number],select,textarea{width:100%;border:1px solid #d1d5db;border-radius:9px;padding:10px 11px;background:#fff;font-size:16px}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--pri);outline-offset:-1px;border-color:transparent}
+input.money{text-align:right;font-variant-numeric:tabular-nums}
+textarea{min-height:76px;resize:vertical}
+.field{margin:10px 0}
+.field>label{display:block;font-size:13px;color:var(--sub);margin-bottom:5px;font-weight:600}
+.req::after{content:"必須";font-size:10px;background:var(--redbg);color:var(--red);padding:1px 5px;border-radius:4px;margin-left:6px;font-weight:600}
+.hint{font-size:12px;color:var(--sub);margin-top:4px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--line);background:#fff;border-radius:10px;padding:10px 14px;font-weight:600;cursor:pointer}
+.btn.pri{background:var(--pri);border-color:var(--pri);color:#fff}
+.btn.danger{color:var(--red);border-color:#f3c4c4}
+.btn.sm{padding:6px 10px;font-size:13px;border-radius:8px}
+.btn.block{width:100%}
+.btn:disabled{opacity:.5}
+.seg{display:flex;flex-wrap:wrap;gap:6px}
+.seg button{flex:1 1 auto;min-width:4.5em;border:1px solid #d1d5db;background:#fff;border-radius:9px;padding:9px 8px;font-weight:600;font-size:14px;cursor:pointer}
+.seg button.on{background:var(--pri);color:#fff;border-color:var(--pri)}
+.tot{font-variant-numeric:tabular-nums;font-weight:700;color:var(--pri)}
+.muted{color:var(--sub)}
+.chip{display:inline-block;font-size:12px;padding:3px 9px;border-radius:99px;font-weight:600;background:#eef0f2;color:var(--sub)}
+.chip.ok{background:var(--pri2);color:var(--pri)}
+.chip.warn{background:var(--amberbg);color:var(--amber)}
+.chip.err{background:var(--redbg);color:var(--red)}
+.chip.info{background:var(--bluebg);color:var(--blue)}
+.st-申請中{background:var(--bluebg);color:var(--blue)}
+.st-差戻し{background:var(--redbg);color:var(--red)}
+.st-承認済{background:var(--pri2);color:var(--pri)}
+.st-精算済{background:#eef0f2;color:#374151}
+.toast{position:fixed;left:50%;bottom:90px;transform:translate(-50%,20px);background:#1f2933;color:#fff;padding:11px 16px;border-radius:10px;opacity:0;transition:.25s;z-index:100;max-width:90vw;font-size:14px;box-shadow:0 4px 14px #0003}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+.toast.err{background:var(--red)}
+.toast.ok{background:var(--pri)}
+#loading{position:fixed;inset:0;background:#fffc;display:none;flex-direction:column;align-items:center;justify-content:center;z-index:90}
+#loading.show{display:flex}
+.spin{width:36px;height:36px;border:4px solid var(--pri2);border-top-color:var(--pri);border-radius:50%;animation:sp .8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+#modal{position:fixed;inset:0;background:#0007;z-index:80;display:flex;align-items:flex-end;justify-content:center}
+#modal .sheet{background:#fff;width:100%;max-width:640px;max-height:88vh;overflow:auto;border-radius:16px 16px 0 0;padding:18px 16px 24px;position:relative}
+@media(min-width:700px){#modal{align-items:center}#modal .sheet{border-radius:16px}}
+#modal .x{position:absolute;right:10px;top:8px;border:0;background:none;font-size:26px;color:var(--sub);cursor:pointer}
+.list-item{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:8px 0;background:#fff}
+.flex{display:flex;align-items:center;gap:8px}
+.between{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.wrap{flex-wrap:wrap}
+.small{font-size:12px}
+.bold{font-weight:700}
+.num{font-variant-numeric:tabular-nums;text-align:right}
+.hidden{display:none!important}
+.notice{background:var(--amberbg);color:var(--amber);border-radius:10px;padding:10px 12px;font-size:13px;margin-bottom:12px}
+.notice.info{background:var(--bluebg);color:var(--blue)}
+.notice.err{background:var(--redbg);color:var(--red)}
+
+main{max-width:1180px;margin:0 auto;padding:14px 14px 60px}
+.tabs{display:flex;gap:4px;background:#ffffff22;border-radius:10px;padding:3px}
+.tabs button{border:0;background:none;color:#fff;padding:6px 12px;border-radius:8px;font-weight:600;cursor:pointer;font-size:14px}
+.tabs button.on{background:#fff;color:var(--pri)}
+.filters{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+.filters input,.filters select{width:auto;padding:8px 10px;font-size:14px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:12px}
+.kpi{background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:12px 14px}
+.kpi small{display:block;color:var(--sub);font-size:12px}
+.kpi b{font-size:20px;font-variant-numeric:tabular-nums}
+.kpi.alert{border-color:#f3c4c4;background:var(--redbg)}
+.tbl-wrap{overflow:auto;background:#fff;border:1px solid var(--line);border-radius:var(--r)}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{background:#f8faf9;position:sticky;top:0;text-align:left;font-size:12px;color:var(--sub);z-index:1}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+tr.click{cursor:pointer}tr.click:hover td{background:#f6fbf9}
+tr.miss td{color:var(--sub);background:#fafafa}
+td.ng{color:var(--red);font-weight:700}
+.cmt{max-width:260px;overflow:hidden;text-overflow:ellipsis}
+tfoot td{font-weight:700;background:#f8faf9}
+.login{max-width:420px;margin:40px auto}
+.acc-sum{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.acc-sum span{background:#fff;border:1px solid var(--line);border-radius:99px;padding:4px 10px;font-size:12px}
+.acc-sum span.unk{border-color:#f3c4c4;color:var(--red);font-weight:700}
+.dl{display:grid;grid-template-columns:9em 1fr;gap:6px 12px;font-size:14px}
+.dl dt{color:var(--sub)}.dl dd{margin:0}
+.missing{font-size:13px;line-height:1.7}
+.pl td{white-space:nowrap}
+.pl td.l1{padding-left:24px}.pl td.l2{padding-left:44px;color:var(--sub)}
+.pl tr.b td{font-weight:700}
+.pl tr.hl td{background:var(--pri2);font-weight:800}
+.pl td.neg{color:var(--red)}
+.grid2{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:12px;align-items:start}
+@media(max-width:900px){.grid2{grid-template-columns:1fr}}
+.minp .row>label{flex-basis:15em}
+.ledger td,.ledger th{white-space:nowrap}
+@media print{.top,.filters,.noprint,#toastx{display:none!important}body,main{background:#fff}main{padding:0;max-width:none}.card,.kpi,.tbl-wrap{box-shadow:none;break-inside:avoid}.grid2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header class="top">
+  <span class="ttl">日報 本部管理</span><span class="badge hidden" id="demoBadge">デモ</span>
+  <div class="tabs hidden" id="tabs"><button data-tab="sales" class="on">売上</button><button data-tab="exp">経費</button><button data-tab="petty">小口現金</button><button data-tab="monthly">月報</button><button data-tab="stores">店舗</button></div>
+  <button class="btn sm hidden" id="logout" style="background:#fff2;color:#fff;border-color:#fff5">ログアウト</button>
+</header>
+<main>
+<section id="loginView" class="login card">
+  <h2>本部ログイン</h2>
+  <div class="field"><label for="lgApi">API URL</label><input type="url" id="lgApi" placeholder="https://script.google.com/macros/s/…/exec"><div class="hint">空欄＝デモモード（この端末のブラウザ内のデータを表示。パスワードは demo）</div></div>
+  <div class="field"><label for="lgPw">本部パスワード</label><input type="password" id="lgPw" autocomplete="current-password"></div>
+  <button class="btn pri block" id="lgBtn">ログイン</button>
+</section>
+
+<div id="appView" class="hidden">
+  <div class="filters">
+    <input type="month" id="fMonth">
+    <select id="fStore"><option value="">全店舗</option></select>
+    <span id="fExtra" class="flex wrap"></span>
+    <span style="flex:1"></span>
+    <button class="btn sm" id="reload">↻ 更新</button>
+    <button class="btn sm" id="csv">CSV出力</button>
+  </div>
+  <section id="tab-sales" class="tab"></section>
+  <section id="tab-exp" class="tab hidden"></section>
+  <section id="tab-petty" class="tab hidden"></section>
+  <section id="tab-monthly" class="tab hidden"></section>
+  <section id="tab-stores" class="tab hidden"></section>
+</div>
+</main>
+
+<script>
+/* ===== 共通ユーティリティ＆デモ用バックエンド（store / hq 共通） ===== */
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const pad = n => String(n).padStart(2, '0');
+const fmtD = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const todayStr = () => fmtD(new Date());
+const thisMonth = () => todayStr().slice(0, 7);
+const nowStr = () => { const d = new Date(); return `${fmtD(d)} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; };
+const uid = p => p + Date.now().toString(36).toUpperCase() + Math.random().toString(36).slice(2, 6).toUpperCase();
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const yen = n => (Number(n || 0) < 0 ? '−¥' : '¥') + Math.abs(Number(n || 0)).toLocaleString('ja-JP');
+const toNum = v => {
+  let s = String(v ?? '').replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+  s = s.replace(/[−ー－‐]/g, '-').replace(/[,，\s¥￥円]/g, '');
+  const n = Number(s); return isFinite(n) ? Math.round(n) : 0;
+};
+const WEEK = ['日', '月', '火', '水', '木', '金', '土'];
+const dow = ds => WEEK[new Date(ds + 'T00:00:00').getDay()];
+
+/* --- 売上日報の項目定義（ラベルはここで変更可。キーは変えないこと） --- */
+const SALES_GROUPS = [
+  { title: '入金', fields: [['cash', '現金売上'], ['cashless', 'キャッシュレス'], ['receivable', '売掛'], ['inOther', 'その他']], total: 'inTotal' },
+  { title: '販売商品', fields: [['insurance', '保険売上'], ['selfPay', '自費'], ['otc', 'OTC'], ['goods', '商品'], ['saleOther', 'その他']], total: 'saleTotal' },
+  { title: '返金対応', fields: [['refSelf', '自費精算'], ['refGoods', '商品返金'], ['refOther', 'その他']], total: 'refTotal' },
+];
+const RX_FIELDS = [['rxEndo', 'えんどう内科'], ['rxHome', '在宅'], ['rxOther', '面処方']];
+
+function calcSales(r) {
+  const o = { date: String(r.date || ''), comment: String(r.comment || ''), staff: String(r.staff || '') };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(o.date)) throw new Error('日付が正しくありません');
+  SALES_GROUPS.forEach(g => { let t = 0; g.fields.forEach(([k]) => { o[k] = toNum(r[k]); t += o[k]; }); o[g.total] = t; });
+  o.diff = o.inTotal - (o.saleTotal - o.refTotal);
+  o.cashOverShort = toNum(r.cashOverShort);
+  let rx = 0; RX_FIELDS.forEach(([k]) => { o[k] = toNum(r[k]); rx += o[k]; }); o.rxTotal = rx;
+  return o;
+}
+
+/* --- 勘定科目（[科目, 迷ったときのヒント]） --- */
+const ACCOUNTS = [
+  ['消耗品費', '10万円未満の備品・日用品（調剤用品・清掃用品・電池など）'],
+  ['事務用品費', '文房具・コピー用紙・トナー・印鑑など'],
+  ['通信費', '切手・レターパック・電話・インターネット'],
+  ['荷造運賃', '宅配便・配送料'],
+  ['旅費交通費', '電車・バス・タクシー・駐車場・業務での移動'],
+  ['会議費', '打合せ時の飲食・お茶菓子'],
+  ['接待交際費', '医療機関・取引先への手土産、慶弔費'],
+  ['福利厚生費', '従業員向けの飲み物・常備品・慰労'],
+  ['新聞図書費', '書籍・雑誌・添付文書集など'],
+  ['研修費', '研修会・セミナー参加費'],
+  ['修繕費', '設備・機器の修理'],
+  ['水道光熱費', '電気・ガス・水道'],
+  ['地代家賃', '家賃・駐車場の月極契約'],
+  ['支払手数料', '振込手数料・各種手数料'],
+  ['租税公課', '収入印紙・行政の手数料（許可申請など）'],
+  ['広告宣伝費', 'チラシ・広告・のぼりなど'],
+  ['仕入高（医薬品）', '医薬品の購入（小分け・緊急購入など）'],
+  ['仕入高（OTC・商品）', 'OTC・物販商品の購入'],
+  ['雑費', 'どれにも当てはまらない少額の支出'],
+  ['不明', '分からないときはこれ（本部で振り分けます）'],
+];
+const METHODS = ['小口現金', '振込', 'クレジット', 'その他'];
+const PAY_STATUS = ['支払済', '未払い', '従業員立替'];
+const INVOICE = ['あり', 'なし', '不明'];
+const EXP_STATUS = ['申請中', '差戻し', '承認済', '精算済'];
+
+function normExpense(x) {
+  const o = {
+    payDate: String(x.payDate || ''), payee: String(x.payee || '').trim(), account: String(x.account || ''),
+    amount: toNum(x.amount), method: String(x.method || ''), payStatus: String(x.payStatus || '支払済'),
+    advancedBy: '', invoice: String(x.invoice || ''), comment: String(x.comment || ''), staff: String(x.staff || ''),
+  };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(o.payDate)) throw new Error('支払日を入力してください');
+  if (!o.payee) throw new Error('支払名を入力してください');
+  if (!o.account) throw new Error('勘定科目を選んでください');
+  if (o.amount <= 0) throw new Error('金額を入力してください');
+  if (!o.method) throw new Error('出金方法を選んでください');
+  if (o.payStatus === '従業員立替') { o.advancedBy = String(x.advancedBy || '').trim(); if (!o.advancedBy) throw new Error('立替した人の名前を入力してください'); }
+  return o;
+}
+
+/* ===== 小口現金出納帳 =====
+ * 入金：補充（ATM出金→小口へ）・調整（本部）。取消済の補充は除外
+ * 出金：経費申請のうち出金方法＝小口現金
+ *   ・支払状況「支払済」→ 支払日に出金
+ *   ・支払状況「従業員立替」→ 本部が「精算済」にした日に出金（小口から立替者へ精算した扱い）
+ *   ・「未払い」→ まだ現金が出ていないので計上しない
+ */
+function buildLedger(petty, expenses) {
+  const e = [];
+  (petty || []).filter(p => p.status !== '取消').forEach(p => e.push({
+    date: p.date, kind: p.type, text: p.type === '補充' ? `補充（${p.memo || 'ATM出金'}）` : `調整：${p.memo || ''}`,
+    inAmt: toNum(p.amount) > 0 ? toNum(p.amount) : 0, outAmt: toNum(p.amount) < 0 ? -toNum(p.amount) : 0,
+    status: p.status, staff: p.staff, ref: p, sort: (p.createdAt || ''),
+  }));
+  (expenses || []).filter(x => x.method === '小口現金').forEach(x => {
+    let date = '';
+    if (x.payStatus === '支払済') date = x.payDate;
+    else if (x.payStatus === '従業員立替' && x.status === '精算済') date = String(x.reviewedAt || x.payDate).slice(0, 10);
+    if (!date) return;
+    e.push({ date, kind: '経費', text: `${x.payee}（${x.account}）${x.payStatus === '従業員立替' ? '※立替精算 ' + x.advancedBy : ''}`,
+      inAmt: 0, outAmt: toNum(x.amount), status: x.status, staff: x.staff, ref: x, sort: (x.createdAt || '') });
+  });
+  e.sort((a, b) => (a.date + a.sort).localeCompare(b.date + b.sort));
+  let bal = 0; e.forEach(r => { bal += r.inAmt - r.outAmt; r.balance = bal; });
+  return e;
+}
+function ledgerMonth(entries, month) {
+  const before = entries.filter(r => r.date < month + '-01');
+  const opening = before.length ? before[before.length - 1].balance : 0;
+  const rows = entries.filter(r => r.date.startsWith(month));
+  const inSum = rows.reduce((a, r) => a + r.inAmt, 0), outSum = rows.reduce((a, r) => a + r.outAmt, 0);
+  return { opening, rows, inSum, outSum, closing: opening + inSum - outSum };
+}
+
+/* ===== 月報（PL） ===== */
+const RECEIPT_DEST = ['社保', '国保', '介護'];
+const MONTHLY_INPUTS = [
+  ['claimAdjust', '返戻・査定などの調整（±）', '売上', '店舗のレセプト報告額に対する増減。減額はマイナス'],
+  ['otherIncome', 'その他収益', '売上', '雑収入など'],
+  ['drugPurchase', '医薬品購入費（卸請求額）', '原価', '卸からの月間請求額（返品・値引後）'],
+  ['goodsPurchase', '商品仕入（OTC・物販）', '原価', ''],
+  ['invChange', '在庫増減（期末在庫−期首在庫）', '原価', '在庫が増えたら＋（原価から差し引きます）'],
+  ['salary', '給与手当', '人件費', '従業員の給与・賞与・通勤手当'],
+  ['execComp', '役員報酬', '人件費', ''],
+  ['welfareLegal', '法定福利費', '人件費', '社会保険・労働保険の会社負担分'],
+  ['rent', '地代家賃', '販管費', ''],
+  ['lease', 'リース料', '販管費', '分包機・レセコン等'],
+  ['depreciation', '減価償却費', '販管費', ''],
+  ['otherSga', 'その他販管費（経費申請以外）', '販管費', '口座引落の通信費・保険料など'],
+];
+const PURCHASE_ACC = { '仕入高（医薬品）': 'drug', '仕入高（OTC・商品）': 'goods' };
+
+function computePL(sales, expenses, manual, receipts) {
+  const S = k => (sales || []).reduce((a, r) => a + toNum(r[k]), 0);
+  const M = k => toNum((manual || {})[k]);
+  const rx = { total: S('rxTotal') }; RX_FIELDS.forEach(([k]) => rx[k] = S(k));
+  const exps = (expenses || []).filter(x => x.status !== '差戻し');
+  const byAcc = {}; exps.forEach(x => byAcc[x.account] = (byAcc[x.account] || 0) + toNum(x.amount));
+  const P = {};
+  const R = d => (receipts || []).filter(r => r.dest === d).reduce((a, r) => a + toNum(r.amount), 0);
+  P.windowIns = S('insurance'); P.claimShaho = R('社保'); P.claimKokuho = R('国保'); P.claimKaigo = R('介護'); P.claimAdjust = M('claimAdjust');
+  P.insRevenue = P.windowIns + P.claimShaho + P.claimKokuho + P.claimKaigo + P.claimAdjust;
+  P.selfPay = S('selfPay'); P.otc = S('otc'); P.goods = S('goods'); P.saleOther = S('saleOther'); P.refunds = -S('refTotal'); P.otherIncome = M('otherIncome');
+  P.nonIns = P.selfPay + P.otc + P.goods + P.saleOther + P.refunds + P.otherIncome;
+  P.revenue = P.insRevenue + P.nonIns;
+  P.drugInvoice = M('drugPurchase'); P.drugExp = byAcc['仕入高（医薬品）'] || 0; P.drug = P.drugInvoice + P.drugExp;
+  P.goodsCost = M('goodsPurchase') + (byAcc['仕入高（OTC・商品）'] || 0);
+  P.invChange = -M('invChange');
+  P.cogs = P.drug + P.goodsCost + P.invChange;
+  P.gross = P.revenue - P.cogs;
+  P.salary = M('salary'); P.execComp = M('execComp'); P.welfareLegal = M('welfareLegal');
+  P.labor = P.salary + P.execComp + P.welfareLegal;
+  P.rent = M('rent') + (byAcc['地代家賃'] || 0); P.lease = M('lease'); P.depreciation = M('depreciation'); P.otherSga = M('otherSga');
+  P.expLines = Object.entries(byAcc).filter(([a]) => !PURCHASE_ACC[a] && a !== '地代家賃').sort((a, b) => b[1] - a[1]);
+  P.expTotal = P.expLines.reduce((a, [, v]) => a + v, 0);
+  P.sga = P.labor + P.rent + P.lease + P.depreciation + P.otherSga + P.expTotal;
+  P.op = P.gross - P.sga;
+  P.cashOverShort = S('cashOverShort');
+  P.days = (sales || []).length; P.rx = rx;
+  P.conc = rx.total ? (rx[RX_FIELDS[0][0]] / rx.total * 100) : 0;
+  P.avgRx = P.days ? rx.total / P.days : 0;
+  P.unitIns = rx.total ? P.insRevenue / rx.total : 0;
+  const pct = (a, b) => b ? a / b * 100 : 0;
+  P.grossRate = pct(P.gross, P.revenue); P.cogsRate = pct(P.cogs, P.revenue); P.laborRate = pct(P.labor, P.revenue); P.opRate = pct(P.op, P.revenue);
+  P.unknownExp = byAcc['不明'] || 0; P.pendingExp = exps.filter(x => x.status === '申請中').length;
+  return P;
+}
+
+function normReceipt(x) {
+  const o = { month: String(x.month || ''), dest: String(x.dest || ''), amount: toNum(x.amount), count: toNum(x.count) || '', comment: String(x.comment || ''), staff: String(x.staff || '').trim() };
+  if (!/^\d{4}-\d{2}$/.test(o.month)) throw new Error('レセプト月（診療月）を選んでください');
+  if (!RECEIPT_DEST.includes(o.dest)) throw new Error('提出先を選んでください');
+  if (o.amount <= 0) throw new Error('請求金額を入力してください');
+  if (!o.staff) throw new Error('報告者を入力してください');
+  return o;
+}
+const receiptDeadline = m => { const [y, mm] = m.split('-').map(Number); const d = new Date(y, mm, 10); return fmtD(d); };
+
+/* ===== API 呼び出し（apiUrl が空ならデモモード＝この端末内に保存） ===== */
+async function callApi(apiUrl, body) {
+  if (!apiUrl) return mockApi(body);
+  let res;
+  try { res = await fetch(apiUrl, { method: 'POST', body: JSON.stringify(body) }); }
+  catch (e) { throw new Error('サーバーに接続できません。通信環境かAPI URLを確認してください'); }
+  let j; try { j = await res.json(); } catch (e) { throw new Error('サーバーの応答が不正です（GASのデプロイ設定を確認してください）'); }
+  if (!j.ok) throw new Error(j.error || 'エラーが発生しました');
+  return j.data;
+}
+
+const MOCK_KEY = 'nippo_demo_db_v1';
+function mdb() {
+  let d = null; try { d = JSON.parse(localStorage.getItem(MOCK_KEY)); } catch (e) { }
+  if (!d) d = {
+    stores: [{ storeId: 'S001', storeName: 'オタスケ薬局（デモ）', passcode: '1234', active: true },
+             { storeId: 'S002', storeName: 'デモ2号店', passcode: '5678', active: true }],
+    sales: [], expenses: [], templates: [], hqPassword: 'demo',
+  };
+  d.petty ||= []; d.monthly ||= []; d.receipts ||= [];
+  return d;
+}
+function msave(d) {
+  try { localStorage.setItem(MOCK_KEY, JSON.stringify(d)); }
+  catch (e) { throw new Error('デモの保存容量を超えました（写真が多いため）。設定画面からデモデータを消去してください'); }
+}
+async function mockApi(p) {
+  await new Promise(r => setTimeout(r, 120));
+  const d = mdb(), now = nowStr();
+  const auth = () => {
+    const s = d.stores.find(x => x.storeId === p.storeId && x.active !== false);
+    if (!s) throw new Error('店舗が見つかりません');
+    if (String(s.passcode) !== String(p.passcode)) throw new Error('店舗パスコードが違います（デモは S001=1234 / S002=5678）');
+    return s;
+  };
+  const hq = () => { if (p.password !== d.hqPassword) throw new Error('本部パスワードが違います（デモは demo）'); };
+  const A = {
+    storeList: () => d.stores.filter(s => s.active !== false).map(s => ({ storeId: s.storeId, storeName: s.storeName })),
+    storeLogin: () => { const s = auth(); return { storeId: s.storeId, storeName: s.storeName }; },
+    saveSales: () => {
+      const s = auth(), o = calcSales(p.report); o.storeId = s.storeId; o.storeName = s.storeName;
+      const i = d.sales.findIndex(x => x.storeId === s.storeId && x.date === o.date);
+      if (i >= 0) { o.id = d.sales[i].id; o.createdAt = d.sales[i].createdAt; o.updatedAt = now; d.sales[i] = o; }
+      else { o.id = uid('S'); o.createdAt = o.updatedAt = now; d.sales.push(o); }
+      msave(d); return o;
+    },
+    getSales: () => { const s = auth(); return d.sales.find(x => x.storeId === s.storeId && x.date === p.date) || null; },
+    listSales: () => { const s = auth(); return d.sales.filter(x => x.storeId === s.storeId && x.date.startsWith(p.month)); },
+    saveExpense: () => {
+      const s = auth(), o = normExpense(p.expense); let ex = null;
+      if (p.expense.id) {
+        ex = d.expenses.find(x => x.id === p.expense.id && x.storeId === s.storeId);
+        if (!ex) throw new Error('修正対象の申請が見つかりません');
+        if (!['申請中', '差戻し'].includes(ex.status)) throw new Error('承認済みの申請は修正できません');
+      }
+      const receipts = (p.expense.keepReceipts || []).slice();
+      (p.expense.photos || []).forEach(ph => receipts.push(ph.demoUrl || ('data:' + ph.type + ';base64,' + ph.data)));
+      Object.assign(o, { receipts, storeId: s.storeId, storeName: s.storeName, status: '申請中', updatedAt: now });
+      if (ex) { Object.assign(ex, o); } else { o.id = uid('E'); o.hqComment = ''; o.reviewedAt = ''; o.createdAt = now; d.expenses.push(o); }
+      msave(d); return ex || o;
+    },
+    listExpenses: () => { const s = auth(); return d.expenses.filter(x => x.storeId === s.storeId && (x.payDate.startsWith(p.month) || x.status === '差戻し')).sort((a, b) => b.createdAt.localeCompare(a.createdAt)); },
+    listTemplates: () => { const s = auth(); return d.templates.filter(t => t.storeId === s.storeId); },
+    saveTemplate: () => {
+      const s = auth(), t = p.template; if (!t.name) throw new Error('テンプレート名を入力してください');
+      const o = { id: uid('T'), storeId: s.storeId, name: t.name, payee: t.payee || '', account: t.account || '', amount: toNum(t.amount) || '', method: t.method || '', payStatus: t.payStatus || '', invoice: t.invoice || '', comment: t.comment || '', createdAt: now };
+      d.templates.push(o); msave(d); return o;
+    },
+    deleteTemplate: () => { const s = auth(); d.templates = d.templates.filter(t => !(t.id === p.id && t.storeId === s.storeId)); msave(d); return true; },
+    savePetty: () => {
+      const s = auth(), x = p.petty || {}, amount = toNum(x.amount);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(x.date || '')) throw new Error('日付を入力してください');
+      if (amount <= 0) throw new Error('金額を入力してください');
+      if (!String(x.staff || '').trim()) throw new Error('申請者を入力してください');
+      const o = { id: uid('P'), storeId: s.storeId, storeName: s.storeName, date: x.date, type: '補充', amount, memo: x.memo || '', staff: x.staff,
+        comment: x.comment || '', receipts: (x.photos || []).map(ph => ph.demoUrl || ('data:' + ph.type + ';base64,' + ph.data)), status: '申請中', hqComment: '', createdAt: now, updatedAt: now };
+      d.petty.push(o); msave(d); return o;
+    },
+    listPetty: () => { const s = auth(); return { petty: d.petty.filter(x => x.storeId === s.storeId), expenses: d.expenses.filter(x => x.storeId === s.storeId && x.method === '小口現金') }; },
+    hqListPetty: () => { hq(); return { petty: d.petty.filter(x => x.storeId === p.storeId), expenses: d.expenses.filter(x => x.storeId === p.storeId && x.method === '小口現金') }; },
+    hqUpdatePetty: () => {
+      hq(); const x = d.petty.find(r => r.id === p.id); if (!x) throw new Error('記録が見つかりません');
+      ['status', 'hqComment'].forEach(k => { if (p[k] !== undefined) x[k] = p[k]; }); x.updatedAt = now; msave(d); return x;
+    },
+    hqAddPetty: () => {
+      hq(); const st = d.stores.find(r => r.storeId === p.storeId); if (!st) throw new Error('店舗を選んでください');
+      const amount = toNum(p.amount); if (!amount) throw new Error('金額を入力してください');
+      const o = { id: uid('P'), storeId: st.storeId, storeName: st.storeName, date: p.date, type: '調整', amount, memo: p.memo || '', staff: '本部', comment: '', receipts: [], status: '確認済', hqComment: '', createdAt: now, updatedAt: now };
+      d.petty.push(o); msave(d); return o;
+    },
+    saveReceiptReport: () => {
+      const s = auth(), x = p.report || {}, o = normReceipt(x);
+      let r = d.receipts.find(y => y.storeId === s.storeId && y.month === o.month && y.dest === o.dest);
+      const photos = (x.photos || []).map(ph => ph.demoUrl || ('data:' + ph.type + ';base64,' + ph.data));
+      if (r) { Object.assign(r, o, { receipts: photos.length ? photos : r.receipts, updatedAt: now }); }
+      else { r = { id: uid('R'), storeId: s.storeId, storeName: s.storeName, ...o, receipts: photos, createdAt: now, updatedAt: now }; d.receipts.push(r); }
+      msave(d); return r;
+    },
+    listReceiptReports: () => { const s = auth(); return d.receipts.filter(r => r.storeId === s.storeId && (!p.month || r.month === p.month)); },
+    hqListReceiptReports: () => { hq(); return d.receipts.filter(r => (p.months || []).includes(r.month) && (!p.storeId || r.storeId === p.storeId)); },
+    hqListMonthly: () => { hq(); return d.monthly.filter(r => (p.months || []).includes(r.month)); },
+    hqSaveMonthly: () => {
+      hq(); if (!p.storeId || !/^\d{4}-\d{2}$/.test(p.month || '')) throw new Error('店舗と月を指定してください');
+      let r = d.monthly.find(x => x.storeId === p.storeId && x.month === p.month);
+      if (!r) { r = { id: uid('M'), storeId: p.storeId, month: p.month }; d.monthly.push(r); }
+      MONTHLY_INPUTS.forEach(([k]) => r[k] = toNum((p.values || {})[k])); r.updatedAt = now; msave(d); return r;
+    },
+    hqLogin: () => { hq(); return { stores: d.stores.map(s => ({ storeId: s.storeId, storeName: s.storeName, active: s.active })) }; },
+    hqListSales: () => { hq(); return d.sales.filter(x => x.date.startsWith(p.month) && (!p.storeId || x.storeId === p.storeId)); },
+    hqListExpenses: () => {
+      hq(); return d.expenses.filter(x => (!p.month || x.payDate.startsWith(p.month)) && (!p.storeId || x.storeId === p.storeId) && (!p.status || x.status === p.status))
+        .sort((a, b) => a.payDate.localeCompare(b.payDate));
+    },
+    hqUpdateExpense: () => {
+      hq(); const ex = d.expenses.find(x => x.id === p.id); if (!ex) throw new Error('申請が見つかりません');
+      ['status', 'account', 'hqComment'].forEach(k => { if (p[k] !== undefined) ex[k] = p[k]; });
+      if (p.status) ex.reviewedAt = now; ex.updatedAt = now; msave(d); return ex;
+    },
+  };
+  if (!A[p.action]) throw new Error('不明な操作: ' + p.action);
+  return A[p.action]();
+}
+
+/* ===== UI 共通 ===== */
+function toast(msg, type = '') {
+  const t = document.createElement('div'); t.className = 'toast ' + type; t.textContent = msg;
+  document.body.appendChild(t); requestAnimationFrame(() => t.classList.add('show'));
+  setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 300); }, type === 'err' ? 4500 : 2500);
+}
+function loading(on, msg = '通信中…') {
+  let el = $('#loading');
+  if (!el) { el = document.createElement('div'); el.id = 'loading'; el.innerHTML = '<div class="spin"></div><p></p>'; document.body.appendChild(el); }
+  el.querySelector('p').textContent = msg; el.classList.toggle('show', on);
+}
+function openModal(html) {
+  closeModal();
+  const m = document.createElement('div'); m.id = 'modal';
+  m.innerHTML = `<div class="sheet"><button class="x" aria-label="閉じる">×</button>${html}</div>`;
+  m.addEventListener('click', e => { if (e.target === m || e.target.classList.contains('x')) closeModal(); });
+  document.body.appendChild(m); return m.querySelector('.sheet');
+}
+function closeModal() { const m = $('#modal'); if (m) m.remove(); }
+function seg(el, options, value) {
+  el.classList.add('seg'); el.dataset.value = value || '';
+  el.innerHTML = options.map(o => `<button type="button" data-v="${esc(o)}" class="${o === value ? 'on' : ''}">${esc(o)}</button>`).join('');
+  if (!el._bound) {
+    el._bound = true;
+    el.addEventListener('click', e => {
+      const b = e.target.closest('button'); if (!b) return;
+      el.dataset.value = b.dataset.v; el.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+      el.dispatchEvent(new Event('change'));
+    });
+  }
+}
+function setSeg(el, value) { el.dataset.value = value || ''; el.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === value)); }
+function fmtMoneyInput(inp) { const v = inp.value.trim(); if (v === '' || v === '-') return; inp.value = toNum(v).toLocaleString('ja-JP'); }
+function downloadCsv(name, rows) {
+  const csv = rows.map(r => r.map(c => { const s = String(c ?? ''); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }).join(',')).join('\r\n');
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+
+const HQ_KEY = 'nippo_hq_api';
+let apiUrl = localStorage.getItem(HQ_KEY) || '', password = sessionStorage.getItem('nippo_hq_pw') || '';
+let stores = [], salesData = [], expData = [], curTab = 'sales';
+let expStatus = '', expUnknownOnly = false, expAllPending = false;
+const api = (action, p = {}) => callApi(apiUrl, { action, password, ...p });
+const storeName = id => (stores.find(s => s.storeId === id) || {}).storeName || id;
+
+async function login() {
+  apiUrl = $('#lgApi').value.trim(); password = $('#lgPw').value;
+  loading(true, 'ログイン中…');
+  try {
+    const r = await api('hqLogin'); stores = r.stores;
+    localStorage.setItem(HQ_KEY, apiUrl); sessionStorage.setItem('nippo_hq_pw', password);
+    $('#loginView').classList.add('hidden'); $('#appView').classList.remove('hidden');
+    $('#tabs').classList.remove('hidden'); $('#logout').classList.remove('hidden');
+    $('#demoBadge').classList.toggle('hidden', !!apiUrl);
+    $('#fStore').innerHTML = '<option value="">全店舗</option>' + stores.map(s => `<option value="${esc(s.storeId)}">${esc(s.storeName)}</option>`).join('');
+    showTab(curTab);
+  } catch (e) { toast(e.message, 'err'); sessionStorage.removeItem('nippo_hq_pw'); }
+  finally { loading(false); }
+}
+$('#lgBtn').addEventListener('click', login);
+$('#lgPw').addEventListener('keydown', e => e.key === 'Enter' && login());
+$('#logout').addEventListener('click', () => { sessionStorage.removeItem('nippo_hq_pw'); location.reload(); });
+$$('#tabs button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
+$('#fMonth').addEventListener('change', () => showTab(curTab));
+$('#fStore').addEventListener('change', () => showTab(curTab));
+$('#reload').addEventListener('click', () => showTab(curTab));
+$('#csv').addEventListener('click', () => ({ sales: csvSales, exp: csvExp, petty: csvPetty, monthly: csvMonthly })[curTab]());
+
+function showTab(t) {
+  curTab = t;
+  $$('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
+  $$('.tab').forEach(s => s.classList.toggle('hidden', s.id !== 'tab-' + t));
+  $('#csv').classList.toggle('hidden', t === 'stores');
+  $('#fExtra').innerHTML = '';
+  if (t === 'sales') loadSales(); else if (t === 'exp') loadExp(); else if (t === 'petty') loadPettyHq(); else if (t === 'monthly') loadMonthly(); else renderStores();
+}
+
+/* ===== 売上 ===== */
+async function loadSales() {
+  const month = $('#fMonth').value, sid = $('#fStore').value, el = $('#tab-sales');
+  el.innerHTML = '<p class="muted">読込中…</p>';
+  try { salesData = await api('hqListSales', { month, storeId: sid }); }
+  catch (e) { el.innerHTML = `<div class="notice err">${esc(e.message)}</div>`; return; }
+  const [y, m] = month.split('-').map(Number), days = new Date(y, m, 0).getDate(), today = todayStr();
+  const targets = sid ? stores.filter(s => s.storeId === sid) : stores.filter(s => s.active !== false && String(s.active) !== 'FALSE');
+  const key = r => r.storeId + '|' + r.date, have = new Set(salesData.map(key));
+  const rows = [], missing = {};
+  for (let d = 1; d <= days; d++) {
+    const ds = `${month}-${pad(d)}`;
+    targets.forEach(s => {
+      const r = salesData.find(x => x.storeId === s.storeId && x.date === ds);
+      if (r) rows.push(r);
+      else if (ds <= today) { rows.push({ _miss: true, date: ds, storeId: s.storeId }); (missing[s.storeId] ||= []).push(d); }
+    });
+  }
+  const sum = k => salesData.reduce((a, r) => a + toNum(r[k]), 0);
+  const ngCount = salesData.filter(r => toNum(r.diff) !== 0).length;
+  const missCount = Object.values(missing).reduce((a, v) => a + v.length, 0);
+  const allNum = SALES_GROUPS.flatMap(g => g.fields.map(f => [f[0], g.title.slice(0, 2) + '・' + f[1]]));
+  el.innerHTML = `
+  <div class="kpis">
+    <div class="kpi"><small>販売合計</small><b>${yen(sum('saleTotal'))}</b></div>
+    <div class="kpi"><small>入金合計</small><b>${yen(sum('inTotal'))}</b></div>
+    <div class="kpi"><small>うち保険売上</small><b>${yen(sum('insurance'))}</b></div>
+    <div class="kpi"><small>客数合計（${RX_FIELDS.map(f => f[1]).join('／')}）</small><b>${sum('rxTotal').toLocaleString()}枚</b><div class="small muted">${RX_FIELDS.map(([k]) => sum(k).toLocaleString()).join('／')}</div></div>
+    <div class="kpi ${ngCount ? 'alert' : ''}"><small>差額ありの日報</small><b>${ngCount}件</b></div>
+    <div class="kpi ${missCount ? 'alert' : ''}"><small>未提出（今日まで・休業日含む）</small><b>${missCount}件</b></div>
+  </div>
+  ${missCount ? `<div class="card missing"><b>未提出の日</b><br>${Object.entries(missing).map(([s, ds]) => `${esc(storeName(s))}：${ds.join(', ')}日`).join('<br>')}</div>` : ''}
+  <label class="flex small" style="margin-bottom:8px"><input type="checkbox" id="hideMiss" checked> 未提出の行を隠す</label>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>日付</th>${sid ? '' : '<th>店舗</th>'}<th class="n">入金合計</th><th class="n">販売合計</th><th class="n">保険</th><th class="n">自費</th><th class="n">OTC・商品</th><th class="n">返金</th><th class="n">差額</th><th class="n">現金過不足</th>${RX_FIELDS.map(f => `<th class="n">${esc(f[1])}</th>`).join('')}<th class="n">客数計</th><th>入力者</th><th>コメント</th></tr></thead>
+    <tbody>${rows.map((r, i) => r._miss
+      ? `<tr class="miss"><td>${r.date.slice(5)}（${dow(r.date)}）</td>${sid ? '' : `<td>${esc(storeName(r.storeId))}</td>`}<td colspan="${11 + RX_FIELDS.length}">未提出</td></tr>`
+      : `<tr class="click" data-i="${salesData.indexOf(r)}"><td>${r.date.slice(5)}（${dow(r.date)}）</td>${sid ? '' : `<td>${esc(r.storeName || storeName(r.storeId))}</td>`}
+        <td class="n">${yen(r.inTotal)}</td><td class="n">${yen(r.saleTotal)}</td><td class="n">${yen(r.insurance)}</td><td class="n">${yen(r.selfPay)}</td><td class="n">${yen(toNum(r.otc) + toNum(r.goods))}</td><td class="n">${yen(r.refTotal)}</td>
+        <td class="n ${toNum(r.diff) ? 'ng' : ''}">${yen(r.diff)}</td><td class="n ${toNum(r.cashOverShort) ? 'ng' : ''}">${toNum(r.cashOverShort) ? yen(r.cashOverShort) : '−'}</td>
+        ${RX_FIELDS.map(([k]) => `<td class="n">${toNum(r[k])}</td>`).join('')}<td class="n">${toNum(r.rxTotal)}</td><td>${esc(r.staff)}</td><td class="cmt" title="${esc(r.comment)}">${esc(r.comment)}</td></tr>`).join('')}</tbody>
+    <tfoot><tr><td>合計</td>${sid ? '' : '<td></td>'}<td class="n">${yen(sum('inTotal'))}</td><td class="n">${yen(sum('saleTotal'))}</td><td class="n">${yen(sum('insurance'))}</td><td class="n">${yen(sum('selfPay'))}</td><td class="n">${yen(sum('otc') + sum('goods'))}</td><td class="n">${yen(sum('refTotal'))}</td><td class="n">${yen(sum('diff'))}</td><td class="n">${yen(sum('cashOverShort'))}</td>${RX_FIELDS.map(([k]) => `<td class="n">${sum(k)}</td>`).join('')}<td class="n">${sum('rxTotal')}</td><td></td><td></td></tr></tfoot>
+  </table></div>`;
+  el.querySelectorAll('tr.click').forEach(tr => tr.addEventListener('click', () => salesDetail(salesData[+tr.dataset.i])));
+  el.querySelectorAll('tr.miss').forEach(tr => tr.classList.add('hidden'));
+  $('#hideMiss').addEventListener('change', e => el.querySelectorAll('tr.miss').forEach(tr => tr.classList.toggle('hidden', e.target.checked)));
+}
+function salesDetail(r) {
+  const dl = (l, v) => `<dt>${esc(l)}</dt><dd>${v}</dd>`;
+  openModal(`<h2>${esc(r.storeName || storeName(r.storeId))}　${r.date}（${dow(r.date)}）</h2>
+    ${SALES_GROUPS.map(g => `<h3 style="margin:14px 0 6px">${esc(g.title)}<span class="tot">${yen(r[g.total])}</span></h3><dl class="dl">${g.fields.map(([k, l]) => dl(l, yen(r[k]))).join('')}</dl>`).join('')}
+    <h3 style="margin:14px 0 6px">照合</h3><dl class="dl">${dl('差額', `<span class="${toNum(r.diff) ? 'chip err' : 'chip ok'}">${yen(r.diff)}</span>`)}${dl('現金過不足', yen(r.cashOverShort))}</dl>
+    <h3 style="margin:14px 0 6px">客数<span class="tot">${toNum(r.rxTotal)}枚</span></h3><dl class="dl">${RX_FIELDS.map(([k, l]) => dl(l, toNum(r[k]) + '枚')).join('')}</dl>
+    <h3 style="margin:14px 0 6px">その他</h3><dl class="dl">${dl('コメント', esc(r.comment).replace(/\n/g, '<br>') || '−')}${dl('入力者', esc(r.staff))}${dl('登録', esc(r.createdAt))}${dl('最終更新', esc(r.updatedAt))}</dl>`);
+}
+function csvSales() {
+  const keys = ['date', 'storeId', 'storeName', ...SALES_GROUPS.flatMap(g => [...g.fields.map(f => f[0]), g.total]), 'diff', 'cashOverShort', ...RX_FIELDS.map(f => f[0]), 'rxTotal', 'staff', 'comment', 'updatedAt'];
+  const labels = { date: '日付', storeId: '店舗ID', storeName: '店舗名', diff: '差額', cashOverShort: '現金過不足', rxTotal: '客数合計', staff: '入力者', comment: 'コメント', updatedAt: '更新日時' };
+  SALES_GROUPS.forEach(g => { g.fields.forEach(([k, l]) => labels[k] = g.title + '_' + l); labels[g.total] = g.title + '合計'; });
+  RX_FIELDS.forEach(([k, l]) => labels[k] = '客数_' + l);
+  const rows = [...salesData].sort((a, b) => (a.date + a.storeId).localeCompare(b.date + b.storeId));
+  downloadCsv(`売上日報_${$('#fMonth').value}.csv`, [keys.map(k => labels[k]), ...rows.map(r => keys.map(k => r[k]))]);
+}
+
+/* ===== 経費 ===== */
+async function loadExp() {
+  const el = $('#tab-exp');
+  $('#fExtra').innerHTML = `<span id="stSeg"></span><label class="flex small"><input type="checkbox" id="unkOnly" ${expUnknownOnly ? 'checked' : ''}> 科目「不明」のみ</label>
+    <label class="flex small"><input type="checkbox" id="allPend" ${expAllPending ? 'checked' : ''}> 月に関係なく未処理（申請中）を表示</label>`;
+  seg($('#stSeg'), ['すべて', ...EXP_STATUS], expStatus || 'すべて');
+  $('#stSeg').addEventListener('change', e => { expStatus = e.currentTarget.dataset.value === 'すべて' ? '' : e.currentTarget.dataset.value; loadExp(); });
+  $('#unkOnly').addEventListener('change', e => { expUnknownOnly = e.target.checked; renderExp(); });
+  $('#allPend').addEventListener('change', e => { expAllPending = e.target.checked; loadExp(); });
+  el.innerHTML = '<p class="muted">読込中…</p>';
+  try {
+    expData = await api('hqListExpenses', expAllPending ? { month: '', storeId: $('#fStore').value, status: '申請中' }
+      : { month: $('#fMonth').value, storeId: $('#fStore').value, status: expStatus });
+    renderExp();
+  } catch (e) { el.innerHTML = `<div class="notice err">${esc(e.message)}</div>`; }
+}
+function shownExp() { return expData.filter(x => !expUnknownOnly || x.account === '不明'); }
+function renderExp() {
+  const el = $('#tab-exp'), list = shownExp(), sid = $('#fStore').value;
+  const total = list.reduce((a, x) => a + toNum(x.amount), 0);
+  const cnt = s => expData.filter(x => x.status === s).length;
+  const byAcc = {}; list.forEach(x => byAcc[x.account] = (byAcc[x.account] || 0) + toNum(x.amount));
+  const adv = list.filter(x => x.payStatus === '従業員立替' && x.status !== '精算済');
+  const unpaid = list.filter(x => x.payStatus === '未払い' && x.status !== '精算済');
+  el.innerHTML = `
+  <div class="kpis">
+    <div class="kpi"><small>表示中の合計（${list.length}件）</small><b>${yen(total)}</b></div>
+    <div class="kpi ${cnt('申請中') ? 'alert' : ''}"><small>申請中（要確認）</small><b>${cnt('申請中')}件</b></div>
+    <div class="kpi"><small>従業員立替（未精算）</small><b>${yen(adv.reduce((a, x) => a + toNum(x.amount), 0))}</b><div class="small muted">${adv.length}件</div></div>
+    <div class="kpi"><small>未払い（未精算）</small><b>${yen(unpaid.reduce((a, x) => a + toNum(x.amount), 0))}</b><div class="small muted">${unpaid.length}件</div></div>
+  </div>
+  <div class="acc-sum">${Object.entries(byAcc).sort((a, b) => b[1] - a[1]).map(([a, v]) => `<span class="${a === '不明' ? 'unk' : ''}">${esc(a)} ${yen(v)}</span>`).join('')}</div>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>状態</th><th>支払日</th>${sid ? '' : '<th>店舗</th>'}<th>支払名</th><th>勘定科目</th><th class="n">金額</th><th>出金方法</th><th>支払状況</th><th>インボイス</th><th>領収書</th><th>申請者</th><th>コメント</th></tr></thead>
+    <tbody>${list.length ? list.map((x, i) => `<tr class="click" data-i="${i}"><td><span class="chip st-${esc(x.status)}">${esc(x.status)}</span></td><td>${esc(x.payDate)}</td>${sid ? '' : `<td>${esc(x.storeName || storeName(x.storeId))}</td>`}
+      <td>${esc(x.payee)}</td><td>${x.account === '不明' ? '<span class="chip err">不明</span>' : esc(x.account)}</td><td class="n">${yen(x.amount)}</td><td>${esc(x.method)}</td>
+      <td>${esc(x.payStatus)}${x.advancedBy ? '（' + esc(x.advancedBy) + '）' : ''}</td><td>${esc(x.invoice || '−')}</td><td>${(x.receipts || []).length ? (x.receipts || []).length + '枚' : '<span class="chip warn">なし</span>'}</td>
+      <td>${esc(x.staff)}</td><td class="cmt" title="${esc(x.comment)}">${esc(x.comment)}</td></tr>`).join('') : `<tr><td colspan="12" class="muted">該当する申請はありません</td></tr>`}</tbody>
+  </table></div>`;
+  el.querySelectorAll('tr.click').forEach(tr => tr.addEventListener('click', () => expDetail(list[+tr.dataset.i])));
+}
+function expDetail(x) {
+  const dl = (l, v) => `<dt>${esc(l)}</dt><dd>${v}</dd>`;
+  const sh = openModal(`<div class="between"><h2 style="margin:0">${esc(x.payee)}</h2><span class="chip st-${esc(x.status)}">${esc(x.status)}</span></div>
+    <dl class="dl" style="margin-top:12px">${dl('店舗', esc(x.storeName || storeName(x.storeId)))}${dl('支払日', esc(x.payDate))}${dl('金額', '<b>' + yen(x.amount) + '</b>')}
+    ${dl('出金方法', esc(x.method))}${dl('支払状況', esc(x.payStatus) + (x.advancedBy ? '（立替：' + esc(x.advancedBy) + '）' : ''))}${dl('インボイス', esc(x.invoice || '−'))}
+    ${dl('コメント', esc(x.comment).replace(/\n/g, '<br>') || '−')}${dl('申請者', esc(x.staff))}${dl('申請日時', esc(x.createdAt))}${x.reviewedAt ? dl('処理日時', esc(x.reviewedAt)) : ''}</dl>
+    <div class="flex wrap" style="margin:12px 0">${(x.receipts || []).map((u, j) => /^data:image/.test(u) ? `<a href="${esc(u)}" target="_blank"><img src="${esc(u)}" style="height:110px;border-radius:8px;border:1px solid var(--line)"></a>` : `<a class="btn sm" href="${esc(u)}" target="_blank" rel="noopener">📎 領収書${j + 1}を開く</a>`).join('') || '<span class="chip warn">領収書なし</span>'}</div>
+    <div class="field"><label for="dAcc">勘定科目（本部で修正可）</label><select id="dAcc">${ACCOUNTS.map(([a]) => `<option ${a === x.account ? 'selected' : ''}>${esc(a)}</option>`).join('')}</select></div>
+    <div class="field"><label for="dCmt">本部コメント（差戻し理由など・店舗に表示されます）</label><textarea id="dCmt">${esc(x.hqComment || '')}</textarea></div>
+    <div class="flex wrap">
+      <button class="btn pri" data-s="承認済">承認</button><button class="btn danger" data-s="差戻し">差戻し</button>
+      <button class="btn" data-s="精算済">精算済にする</button><button class="btn" data-s="申請中">申請中に戻す</button>
+      <button class="btn" data-s="">科目・コメントだけ保存</button></div>`);
+  sh.querySelectorAll('[data-s]').forEach(b => b.addEventListener('click', async () => {
+    const s = b.dataset.s, hqComment = sh.querySelector('#dCmt').value.trim(), account = sh.querySelector('#dAcc').value;
+    if (s === '差戻し' && !hqComment) return toast('差戻し理由を本部コメントに入力してください', 'err');
+    if (s === '承認済' && account === '不明' && !confirm('勘定科目が「不明」のままです。承認しますか？')) return;
+    loading(true, '保存中…');
+    try {
+      const p = { id: x.id, account, hqComment }; if (s) p.status = s;
+      const nx = await api('hqUpdateExpense', p); Object.assign(x, nx);
+      closeModal(); toast('保存しました', 'ok'); renderExp();
+    } catch (e) { toast(e.message, 'err'); } finally { loading(false); }
+  }));
+}
+function csvExp() {
+  const keys = [['status', '状態'], ['payDate', '支払日'], ['storeId', '店舗ID'], ['storeName', '店舗名'], ['payee', '支払名'], ['account', '勘定科目'], ['amount', '金額'], ['method', '出金方法'], ['payStatus', '支払状況'], ['advancedBy', '立替者'], ['invoice', 'インボイス'], ['comment', 'コメント'], ['staff', '申請者'], ['hqComment', '本部コメント'], ['receipts', '領収書URL'], ['createdAt', '申請日時']];
+  const rows = shownExp().map(x => keys.map(([k]) => k === 'receipts' ? (x.receipts || []).filter(u => !u.startsWith('data:')).join(' ') : x[k]));
+  downloadCsv(`経費申請_${expAllPending ? '未処理' : $('#fMonth').value}.csv`, [keys.map(k => k[1]), ...rows]);
+}
+
+
+/* ===== 小口現金（本部） ===== */
+let pettyLedger = null;
+async function loadPettyHq() {
+  const el = $('#tab-petty'), sid = $('#fStore').value, month = $('#fMonth').value;
+  el.innerHTML = '<p class="muted">読込中…</p>'; pettyLedger = null;
+  try {
+    if (!sid) {
+      const act = stores.filter(s => s.active !== false && String(s.active) !== 'FALSE');
+      const res = await Promise.all(act.map(s => api('hqListPetty', { storeId: s.storeId })));
+      el.innerHTML = `<div class="notice info">店舗を選ぶと出納帳の明細・補充の確認・残高調整ができます。</div>
+        <div class="tbl-wrap"><table><thead><tr><th>店舗</th><th class="n">現在の帳簿残高</th><th class="n">${month} 補充</th><th class="n">${month} 出金</th><th>確認待ち</th></tr></thead><tbody>
+        ${act.map((s, i) => { const e = buildLedger(res[i].petty, res[i].expenses), L = ledgerMonth(e, month), pend = res[i].petty.filter(x => x.status === '申請中').length;
+          return `<tr class="click" data-s="${esc(s.storeId)}"><td>${esc(s.storeName)}</td><td class="n">${yen(e.length ? e[e.length - 1].balance : 0)}</td><td class="n">${yen(L.inSum)}</td><td class="n">${yen(L.outSum)}</td><td>${pend ? `<span class="chip info">${pend}件</span>` : ''}</td></tr>`; }).join('')}
+        </tbody></table></div>`;
+      el.querySelectorAll('tr[data-s]').forEach(tr => tr.addEventListener('click', () => { $('#fStore').value = tr.dataset.s; loadPettyHq(); }));
+      return;
+    }
+    const r = await api('hqListPetty', { storeId: sid }), entries = buildLedger(r.petty, r.expenses), L = ledgerMonth(entries, month);
+    pettyLedger = { L, month, sid };
+    const pend = r.petty.filter(x => x.status === '申請中');
+    el.innerHTML = `<div class="kpis">
+      <div class="kpi"><small>現在の帳簿残高</small><b>${yen(entries.length ? entries[entries.length - 1].balance : 0)}</b></div>
+      <div class="kpi"><small>前月繰越</small><b>${yen(L.opening)}</b></div>
+      <div class="kpi"><small>当月 補充・調整</small><b>${yen(L.inSum)}</b></div>
+      <div class="kpi"><small>当月 出金</small><b>${yen(L.outSum)}</b></div>
+      <div class="kpi"><small>次月繰越</small><b>${yen(L.closing)}</b></div></div>
+    ${pend.length ? `<div class="card"><b>補充申請の確認待ち</b>${pend.map(x => `<div class="list-item between wrap"><span>${esc(x.date)}　<b>${yen(x.amount)}</b>　${esc(x.memo)}　<span class="muted small">${esc(x.staff)}${x.comment ? '／' + esc(x.comment) : ''}</span>
+      ${(x.receipts || []).map((u, j) => `<a href="${esc(u)}" target="_blank" rel="noopener" class="small">明細票${j + 1}</a>`).join(' ')}</span>
+      <span class="flex"><button class="btn sm pri" data-ok="${esc(x.id)}">確認済</button><button class="btn sm danger" data-cancel="${esc(x.id)}">取消</button></span></div>`).join('')}
+      <p class="hint">確認前の補充も出納帳には記帳済みです。「取消」にすると出納帳から外れます（誤申請用）。</p></div>` : ''}
+    <div class="grid2"><div class="tbl-wrap"><table class="ledger"><thead><tr><th>日付</th><th>摘要</th><th class="n">入金</th><th class="n">出金</th><th class="n">残高</th><th>状態</th><th>担当</th></tr></thead><tbody>
+      <tr><td></td><td class="bold">前月繰越</td><td></td><td></td><td class="n bold">${yen(L.opening)}</td><td></td><td></td></tr>
+      ${L.rows.map(e => `<tr><td>${esc(e.date)}</td><td>${esc(e.text)}</td><td class="n">${e.inAmt ? yen(e.inAmt) : ''}</td><td class="n">${e.outAmt ? yen(e.outAmt) : ''}</td><td class="n">${yen(e.balance)}</td><td><span class="chip st-${esc(e.status)}">${esc(e.status)}</span></td><td>${esc(e.staff)}</td></tr>`).join('')}
+      <tr><td></td><td class="bold">当月計／次月繰越</td><td class="n bold">${yen(L.inSum)}</td><td class="n bold">${yen(L.outSum)}</td><td class="n bold">${yen(L.closing)}</td><td></td><td></td></tr></tbody></table></div>
+    <div class="card"><b>残高の調整を記帳（本部）</b><p class="hint">開始時の残高（期首残高）や、実査で判明した差額の修正に使います。減らすときはマイナスで入力。</p>
+      <div class="field"><label>日付</label><input type="date" id="adjDate" value="${todayStr()}"></div>
+      <div class="field"><label>金額（±）</label><input type="text" id="adjAmt" class="money" placeholder="例：30000 / -500"></div>
+      <div class="field"><label>摘要</label><input type="text" id="adjMemo" placeholder="例：期首残高、実査差額"></div>
+      <button class="btn pri block" id="adjBtn">記帳する</button></div></div>`;
+    const upd = async (id, status) => { loading(true); try { await api('hqUpdatePetty', { id, status }); toast('更新しました', 'ok'); loadPettyHq(); } catch (e) { toast(e.message, 'err'); } finally { loading(false); } };
+    el.querySelectorAll('[data-ok]').forEach(b => b.addEventListener('click', () => upd(b.dataset.ok, '確認済')));
+    el.querySelectorAll('[data-cancel]').forEach(b => b.addEventListener('click', () => confirm('この補充を取消して出納帳から外しますか？') && upd(b.dataset.cancel, '取消')));
+    $('#adjBtn').addEventListener('click', async () => {
+      const amount = toNum($('#adjAmt').value); if (!amount) return toast('金額を入力してください', 'err');
+      if (!$('#adjMemo').value.trim()) return toast('摘要を入力してください', 'err');
+      loading(true); try { await api('hqAddPetty', { storeId: sid, date: $('#adjDate').value, amount, memo: $('#adjMemo').value.trim() }); toast('記帳しました', 'ok'); loadPettyHq(); }
+      catch (e) { toast(e.message, 'err'); } finally { loading(false); }
+    });
+  } catch (e) { el.innerHTML = `<div class="notice err">${esc(e.message)}</div>`; }
+}
+function csvPetty() {
+  if (!pettyLedger) return toast('店舗を選んでください', 'err');
+  const { L, month, sid } = pettyLedger;
+  downloadCsv(`小口現金出納帳_${storeName(sid)}_${month}.csv`, [['日付', '摘要', '入金', '出金', '残高', '状態', '担当'], ['', '前月繰越', '', '', L.opening],
+    ...L.rows.map(e => [e.date, e.text, e.inAmt || '', e.outAmt || '', e.balance, e.status, e.staff]), ['', '当月計', L.inSum, L.outSum, L.closing]]);
+}
+
+/* ===== 月報（PL） ===== */
+let monthlyCache = null;
+const prevMonth = m => { const [y, mm] = m.split('-').map(Number); const d = new Date(y, mm - 2, 1); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; };
+function sumManual(rows, storeId, month) {
+  const o = {}; rows.filter(r => r.month === month && (!storeId || r.storeId === storeId)).forEach(r => MONTHLY_INPUTS.forEach(([k]) => o[k] = (o[k] || 0) + toNum(r[k]))); return o;
+}
+function plLines(P, Q) {
+  const names = [...new Set([...P.expLines, ...Q.expLines].map(x => x[0]))];
+  const ex = (X, n) => (X.expLines.find(x => x[0] === n) || [0, 0])[1];
+  return [
+    ['売上高', X => X.revenue, 0, 'b'],
+    ['保険収益', X => X.insRevenue, 1, 'b'], ['窓口負担金（日報）', X => X.windowIns, 2], ['保険請求額（社保）', X => X.claimShaho, 2], ['保険請求額（国保・後期）', X => X.claimKokuho, 2], ['介護保険請求額', X => X.claimKaigo, 2], ['返戻・査定などの調整', X => X.claimAdjust, 2],
+    ['保険外収益', X => X.nonIns, 1, 'b'], ['自費', X => X.selfPay, 2], ['OTC', X => X.otc, 2], ['商品', X => X.goods, 2], ['その他販売', X => X.saleOther, 2], ['返金', X => X.refunds, 2], ['その他収益', X => X.otherIncome, 2],
+    ['売上原価', X => X.cogs, 0, 'b'],
+    ['医薬品購入費', X => X.drug, 1], ['卸請求額', X => X.drugInvoice, 2], ['経費申請分', X => X.drugExp, 2],
+    ['商品仕入', X => X.goodsCost, 1], ['在庫増減による調整', X => X.invChange, 1],
+    ['売上総利益（粗利）', X => X.gross, 0, 'hl'],
+    ['販売費及び一般管理費', X => X.sga, 0, 'b'],
+    ['人件費', X => X.labor, 1, 'b'], ['給与手当', X => X.salary, 2], ['役員報酬', X => X.execComp, 2], ['法定福利費', X => X.welfareLegal, 2],
+    ['地代家賃', X => X.rent, 1], ['リース料', X => X.lease, 1], ['減価償却費', X => X.depreciation, 1],
+    ...names.map(n => [n + '（経費申請）', X => ex(X, n), 1]),
+    ['その他販管費', X => X.otherSga, 1],
+    ['営業利益', X => X.op, 0, 'hl'],
+  ];
+}
+async function loadMonthly() {
+  const el = $('#tab-monthly'), sid = $('#fStore').value, month = $('#fMonth').value, pm = prevMonth(month);
+  el.innerHTML = '<p class="muted">読込中…</p>';
+  try {
+    const [s1, s0, e1, e0, mrows, rcp] = await Promise.all([
+      api('hqListSales', { month, storeId: sid }), api('hqListSales', { month: pm, storeId: sid }),
+      api('hqListExpenses', { month, storeId: sid, status: '' }), api('hqListExpenses', { month: pm, storeId: sid, status: '' }),
+      api('hqListMonthly', { months: [month, pm] }), api('hqListReceiptReports', { months: [month, pm], storeId: sid })]);
+    const r1 = rcp.filter(r => r.month === month), r0 = rcp.filter(r => r.month === pm);
+    const man = sumManual(mrows, sid, month), P = computePL(s1, e1, man, r1), Q = computePL(s0, e0, sumManual(mrows, sid, pm), r0);
+    monthlyCache = { P, Q, month, pm, sid, lines: plLines(P, Q), r1 };
+    renderMonthly(man);
+  } catch (e) { el.innerHTML = `<div class="notice err">${esc(e.message)}</div>`; }
+}
+function renderMonthly(man) {
+  const { P, Q, month, pm, sid, lines, r1 } = monthlyCache, el = $('#tab-monthly');
+  const tgt = sid ? stores.filter(s => s.storeId === sid) : stores.filter(s => s.active !== false && String(s.active) !== 'FALSE');
+  const rcpCard = `<div class="tbl-wrap" style="margin-bottom:12px"><table><thead><tr><th>レセプト報告（${month.replace('-', '年')}月診療分・期限 ${receiptDeadline(month).slice(5).replace('-', '/')}）</th>${RECEIPT_DEST.map(d => `<th class="n">${d}</th>`).join('')}</tr></thead><tbody>
+    ${tgt.map(s => `<tr><td>${esc(s.storeName)}</td>${RECEIPT_DEST.map(d => { const r = r1.find(x => x.storeId === s.storeId && x.dest === d);
+      return r ? `<td class="n" title="${esc(r.staff)} ${esc(r.updatedAt)}${r.count ? ' ' + r.count + '件' : ''}">${yen(r.amount)}${(r.receipts || []).filter(u => !u.startsWith('data:')).map(u => ` <a href="${esc(u)}" target="_blank" rel="noopener">📎</a>`).join('')}</td>` : (d === '介護' ? '<td class="n muted">−</td>' : `<td class="n"><span class="chip ${todayStr() > receiptDeadline(month) ? 'err' : ''}">未報告</span></td>`); }).join('')}</tr>`).join('')}
+    </tbody></table></div>`;
+  const f1 = n => n.toFixed(1), diffCell = (a, b) => { const d = a - b; return `<td class="n ${d < 0 ? 'neg' : ''}">${d === 0 ? '−' : (d > 0 ? '+' : '') + yen(d).replace('−', '-')}</td>`; };
+  const rate = (v, r) => r ? f1(v / r * 100) + '%' : '−';
+  const noManual = !MONTHLY_INPUTS.some(([k]) => toNum(man[k]));
+  const rxRow = (label, a, b, unit = '枚') => `<tr><td>${label}</td><td class="n">${a.toLocaleString()}${unit}</td><td class="n">${b.toLocaleString()}${unit}</td><td class="n">${a - b > 0 ? '+' : ''}${(a - b).toLocaleString()}</td></tr>`;
+  el.innerHTML = `
+  <div class="between" style="margin-bottom:10px"><h2 style="margin:0">${month.replace('-', '年')}月 月報　${esc(sid ? storeName(sid) : '全店合計')}</h2><button class="btn sm noprint" onclick="print()">🖨 印刷・PDF</button></div>
+  ${P.pendingExp || P.unknownExp ? `<div class="notice noprint">${P.pendingExp ? `未承認の経費申請が ${P.pendingExp}件 含まれています。` : ''}${P.unknownExp ? `科目「不明」の経費 ${yen(P.unknownExp)} があります（経費タブで振り分けてください）。` : ''}</div>` : ''}
+  ${noManual ? `<div class="notice info noprint">医薬品購入費・人件費などの手入力項目が未入力です。右の欄から入力してください（保険請求額は店舗のレセプト報告から自動反映）。</div>` : ''}
+  ${rcpCard}
+  <div class="kpis">
+    <div class="kpi"><small>処方箋枚数（営業${P.days}日）</small><b>${P.rx.total.toLocaleString()}枚</b><div class="small muted">前月 ${Q.rx.total.toLocaleString()}枚／1日平均 ${f1(P.avgRx)}枚</div></div>
+    <div class="kpi"><small>集中率（${esc(RX_FIELDS[0][1])}）</small><b>${f1(P.conc)}%</b><div class="small muted">前月 ${f1(Q.conc)}%</div></div>
+    <div class="kpi"><small>売上高</small><b>${yen(P.revenue)}</b><div class="small muted">前月 ${yen(Q.revenue)}</div></div>
+    <div class="kpi"><small>処方箋単価（保険収益÷枚数）</small><b>${yen(Math.round(P.unitIns))}</b><div class="small muted">前月 ${yen(Math.round(Q.unitIns))}</div></div>
+    <div class="kpi"><small>粗利率／原価率</small><b>${f1(P.grossRate)}%</b><div class="small muted">原価率 ${f1(P.cogsRate)}%</div></div>
+    <div class="kpi"><small>人件費率</small><b>${f1(P.laborRate)}%</b><div class="small muted">前月 ${f1(Q.laborRate)}%</div></div>
+    <div class="kpi ${P.op < 0 ? 'alert' : ''}"><small>営業利益（率）</small><b>${yen(P.op)}</b><div class="small muted">${f1(P.opRate)}%／前月 ${yen(Q.op)}</div></div>
+  </div>
+  <div class="grid2">
+    <div>
+      <div class="tbl-wrap"><table class="pl"><thead><tr><th>科目</th><th class="n">当月</th><th class="n">売上比</th><th class="n">前月（${pm.slice(5)}月）</th><th class="n">増減</th></tr></thead><tbody>
+      ${lines.map(([l, f, lv, cls]) => { const a = f(P), b = f(Q); if (lv === 2 && !a && !b) return ''; return `<tr class="${cls || ''}"><td class="l${lv}">${esc(l)}</td><td class="n ${a < 0 ? 'neg' : ''}">${yen(a)}</td><td class="n">${rate(a, P.revenue)}</td><td class="n">${yen(b)}</td>${diffCell(a, b)}</tr>`; }).join('')}
+      </tbody></table></div>
+      <div class="tbl-wrap" style="margin-top:12px"><table><thead><tr><th>処方箋・客数</th><th class="n">当月</th><th class="n">前月</th><th class="n">増減</th></tr></thead><tbody>
+        ${RX_FIELDS.map(([k, l]) => rxRow(esc(l), P.rx[k], Q.rx[k])).join('')}${rxRow('<b>合計</b>', P.rx.total, Q.rx.total)}
+        <tr><td>集中率（${esc(RX_FIELDS[0][1])}÷全処方箋×100）</td><td class="n">${f1(P.conc)}%</td><td class="n">${f1(Q.conc)}%</td><td class="n">${f1(P.conc - Q.conc)}pt</td></tr>
+        <tr><td>営業日数（日報提出日）</td><td class="n">${P.days}日</td><td class="n">${Q.days}日</td><td></td></tr>
+        <tr><td>1日平均処方箋枚数</td><td class="n">${f1(P.avgRx)}枚</td><td class="n">${f1(Q.avgRx)}枚</td><td></td></tr>
+        <tr><td>現金過不足（日報合計）</td><td class="n">${yen(P.cashOverShort)}</td><td class="n">${yen(Q.cashOverShort)}</td><td></td></tr>
+      </tbody></table></div>
+      <p class="hint">保険請求額は店舗のレセプト報告（診療月ベース）から反映。保険外収益は返金を差し引いた額。経費は差戻しを除く当月支払日分（申請中を含む）。売上原価＝医薬品購入費＋商品仕入−在庫増加額。</p>
+    </div>
+    <div class="card minp noprint"><b>${month.replace('-', '年')}月の手入力項目</b>
+      ${sid ? MONTHLY_INPUTS.map(([k, l, g, h]) => `<div class="field"><label for="mi_${k}">${esc(l)} <span class="chip" style="font-size:10px;padding:1px 6px">${g}</span></label>
+        <input type="text" class="money" id="mi_${k}" data-k="${k}" value="${toNum(man[k]) ? toNum(man[k]).toLocaleString() : ''}" placeholder="0">${h ? `<div class="hint">${esc(h)}</div>` : ''}</div>`).join('')
+        + '<button class="btn pri block" id="miSave">保存して再計算</button>'
+        : '<p class="small muted">全店合計は各店舗の入力値の合計です。入力するときは上のプルダウンで店舗を選んでください。</p>'}
+    </div>
+  </div>`;
+  el.querySelectorAll('.minp input.money').forEach(i => i.addEventListener('blur', () => fmtMoneyInput(i)));
+  if (sid) $('#miSave').addEventListener('click', async () => {
+    const values = {}; el.querySelectorAll('.minp input[data-k]').forEach(i => values[i.dataset.k] = toNum(i.value));
+    loading(true, '保存中…');
+    try { await api('hqSaveMonthly', { storeId: sid, month, values }); toast('保存しました', 'ok'); loadMonthly(); }
+    catch (e) { toast(e.message, 'err'); } finally { loading(false); }
+  });
+}
+function csvMonthly() {
+  if (!monthlyCache) return;
+  const { P, Q, month, pm, sid, lines } = monthlyCache;
+  const rows = [['科目', `${month}`, '売上比(%)', `${pm}`, '増減']];
+  lines.forEach(([l, f, lv]) => { const a = f(P), b = f(Q); if (lv === 2 && !a && !b) return; rows.push(['　'.repeat(lv) + l, a, P.revenue ? (a / P.revenue * 100).toFixed(1) : '', b, a - b]); });
+  rows.push([], ['処方箋・客数', month, '', pm, '増減']);
+  RX_FIELDS.forEach(([k, l]) => rows.push([l, P.rx[k], '', Q.rx[k], P.rx[k] - Q.rx[k]]));
+  rows.push(['処方箋合計', P.rx.total, '', Q.rx.total, P.rx.total - Q.rx.total], ['集中率(%)', P.conc.toFixed(1), '', Q.conc.toFixed(1), ''],
+    ['営業日数', P.days, '', Q.days, ''], ['1日平均枚数', P.avgRx.toFixed(1), '', Q.avgRx.toFixed(1), ''], ['処方箋単価', Math.round(P.unitIns), '', Math.round(Q.unitIns), '']);
+  downloadCsv(`月報_${sid ? storeName(sid) : '全店'}_${month}.csv`, rows);
+}
+
+/* ===== 店舗リンク ===== */
+function renderStores() {
+  const base = location.href.split(/[?#]/)[0].replace(/[^/]*$/, '') + 'store.html';
+  $('#tab-stores').innerHTML = `<div class="notice info">店舗の追加・パスコード変更は、スプレッドシートの「店舗マスタ」シートで行います。下のリンクを店舗端末で開くと、API URL と店舗が自動で設定されます（パスコードは別途お伝えください）。</div>
+    ${stores.map(s => { const url = `${base}?api=${encodeURIComponent(apiUrl)}&store=${encodeURIComponent(s.storeId)}`;
+      return `<div class="card"><div class="between"><b>${esc(s.storeName)}（${esc(s.storeId)}）</b>${s.active === false || String(s.active) === 'FALSE' ? '<span class="chip">無効</span>' : ''}</div>
+      <div class="flex" style="margin-top:8px"><input type="text" readonly value="${esc(url)}"><button class="btn sm" data-copy="${esc(url)}">コピー</button><a class="btn sm" href="${esc(url)}" target="_blank" rel="noopener">開く</a></div></div>`; }).join('')}`;
+  $$('#tab-stores [data-copy]').forEach(b => b.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(b.dataset.copy); toast('コピーしました', 'ok'); } catch (e) { b.previousElementSibling.select(); toast('選択しました。コピーしてください'); }
+  }));
+}
+
+/* ===== 起動 ===== */
+$('#fMonth').value = thisMonth(); $('#lgApi').value = apiUrl;
+if (password) { $('#lgPw').value = password; login(); }
+</script>
+</body>
+</html>
