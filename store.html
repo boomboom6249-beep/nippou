@@ -141,6 +141,10 @@ main{max-width:640px;margin:0 auto;padding:12px 12px 150px}
       <span>入金合計</span><span class="v" id="ckIn">¥0</span>
       <span>販売合計 − 返金合計</span><span class="v" id="ckNet">¥0</span>
     </div>
+    <div class="check" style="margin-top:6px;font-size:13px;color:var(--sub)">
+      <span>保険売上（計）※返金控除後</span><span class="v" id="ckIns">¥0</span>
+      <span>保険外売上（計）※返金控除後</span><span class="v" id="ckNon">¥0</span>
+    </div>
     <div class="diffbox ok" id="ckDiff"><span>差額</span><span>¥0</span></div>
     <div class="row" style="margin-top:8px">
       <label for="f_cashOverShort">現金過不足</label>
@@ -169,13 +173,25 @@ main{max-width:640px;margin:0 auto;padding:12px 12px 150px}
   <button class="btn block" id="exTplBtn" style="margin-bottom:12px">📋 よく使う申請・過去の申請から入力</button>
   <div class="card">
     <div class="field"><label for="exPayDate" class="req">支払日</label><input type="date" id="exPayDate"></div>
-    <div class="field"><label for="exPayee" class="req">支払名（支払先・内容）</label><input type="text" id="exPayee" placeholder="例：〇〇文具店 コピー用紙" list="payeeList"><datalist id="payeeList"></datalist></div>
+    <div class="field" id="exPayeeWrap"><label for="exPayee" class="req">支払名（支払先・内容）</label><input type="text" id="exPayee" placeholder="例：〇〇文具店 コピー用紙" list="payeeList"><datalist id="payeeList"></datalist></div>
     <div class="field"><label for="exAccount" class="req">勘定科目</label><select id="exAccount"></select><div class="hint" id="exAccHint"></div></div>
-    <div class="field"><label for="exAmount" class="req">金額（税込）</label><input type="text" inputmode="numeric" class="money" id="exAmount" placeholder="0"></div>
+    <div id="trWrap" class="hidden" style="border-top:1px dashed var(--line);border-bottom:1px dashed var(--line);margin:6px 0;padding:4px 0 8px">
+      <div class="field"><label for="trUser" class="req">使った人</label><input type="text" id="trUser" placeholder="氏名"></div>
+      <div class="field"><label class="req">交通手段</label><div id="trMode"></div><input type="text" id="trModeOther" class="hidden" placeholder="例：タクシー" style="margin-top:6px"></div>
+      <div class="field"><label for="trFrom" class="req">乗車駅（停留所）</label><input type="text" id="trFrom" placeholder="例：北習志野"></div>
+      <div id="trVia"></div>
+      <button type="button" class="btn sm" id="trAddVia">＋ 乗り換え駅を追加</button>
+      <div class="field"><label for="trTo" class="req">降車駅（停留所）</label><input type="text" id="trTo" placeholder="例：津田沼"></div>
+      <div class="field"><label class="req">片道／往復</label><div id="trRound"></div></div>
+      <div class="field"><label for="trFare" class="req">乗車賃（片道）</label><input type="text" inputmode="numeric" class="money" id="trFare" placeholder="0">
+        <div class="hint" id="trCalc"></div></div>
+      <div class="field"><label for="trPurpose" class="req">利用目的</label><input type="text" id="trPurpose" placeholder="例：在宅訪問（〇〇様宅）、研修参加"></div>
+    </div>
+    <div class="field" id="exAmountWrap"><label for="exAmount" class="req">金額（税込）</label><input type="text" inputmode="numeric" class="money" id="exAmount" placeholder="0"></div>
     <div class="field"><label class="req">出金方法</label><div id="exMethod"></div></div>
     <div class="field"><label class="req">支払状況</label><div id="exPayStatus"></div></div>
     <div class="field hidden" id="exAdvWrap"><label for="exAdvancedBy" class="req">立替した人</label><input type="text" id="exAdvancedBy" placeholder="氏名"></div>
-    <div class="field"><label>インボイス（登録番号Tの記載）</label><div id="exInvoice"></div><div class="hint">領収書・請求書に「T＋13桁」の番号があれば「あり」</div></div>
+    <div class="field" id="exInvWrap"><label>インボイス（登録番号Tの記載）</label><div id="exInvoice"></div><div class="hint">領収書・請求書に「T＋13桁」の番号があれば「あり」</div></div>
   </div>
   <div class="card">
     <label class="bold small">領収書・請求書の写真</label>
@@ -287,21 +303,40 @@ const WEEK = ['日', '月', '火', '水', '木', '金', '土'];
 const dow = ds => WEEK[new Date(ds + 'T00:00:00').getDay()];
 
 /* --- 売上日報の項目定義（ラベルはここで変更可。キーは変えないこと） --- */
+// 販売科目と返金科目の対応 [販売キー, 返金キー, 科目名, 区分(ins=保険/non=保険外)]
+const SALE_ITEMS = [
+  ['insurance', 'refIns', '保険売上', 'ins'],
+  ['insSelf', 'refInsSelf', '保険売上（自費）', 'ins'],
+  ['selfPay', 'refSelf', '自費医療（課税）', 'non'],
+  ['otc', 'refOtc', 'OTC', 'non'],
+  ['goods', 'refGoods', '商品', 'non'],
+  ['saleOther', 'refOther', 'その他', 'non'],
+];
 const SALES_GROUPS = [
   { title: '入金', fields: [['cash', '現金売上'], ['cashless', 'キャッシュレス'], ['receivable', '売掛'], ['inOther', 'その他']], total: 'inTotal' },
-  { title: '販売商品', fields: [['insurance', '保険売上'], ['selfPay', '自費'], ['otc', 'OTC'], ['goods', '商品'], ['saleOther', 'その他']], total: 'saleTotal' },
-  { title: '返金対応', fields: [['refSelf', '自費精算'], ['refGoods', '商品返金'], ['refOther', 'その他']], total: 'refTotal' },
+  { title: '販売商品', fields: SALE_ITEMS.map(x => [x[0], x[2]]), total: 'saleTotal' },
+  { title: '返金対応', fields: SALE_ITEMS.map(x => [x[1], x[2]]), total: 'refTotal' },
 ];
-const RX_FIELDS = [['rxEndo', 'えんどう内科'], ['rxHome', '在宅'], ['rxOther', '面処方']];
+const RX_FIELDS = [['rxEndo', '主クリニック'], ['rxHome', '在宅'], ['rxOther', '面処方']];
 
 function calcSales(r) {
   const o = { date: String(r.date || ''), comment: String(r.comment || ''), staff: String(r.staff || '') };
   if (!/^\d{4}-\d{2}-\d{2}$/.test(o.date)) throw new Error('日付が正しくありません');
   SALES_GROUPS.forEach(g => { let t = 0; g.fields.forEach(([k]) => { o[k] = toNum(r[k]); t += o[k]; }); o[g.total] = t; });
+  o.insNet = 0; o.nonInsNet = 0;
+  SALE_ITEMS.forEach(([s, rf, , c]) => { o[c === 'ins' ? 'insNet' : 'nonInsNet'] += o[s] - o[rf]; });
   o.diff = o.inTotal - (o.saleTotal - o.refTotal);
   o.cashOverShort = toNum(r.cashOverShort);
   let rx = 0; RX_FIELDS.forEach(([k]) => { o[k] = toNum(r[k]); rx += o[k]; }); o.rxTotal = rx;
   return o;
+}
+// 科目別集計（売上・返金・差引）
+function salesBySubject(list) {
+  const S = k => (list || []).reduce((a, r) => a + toNum(r[k]), 0);
+  const rows = SALE_ITEMS.map(([s, rf, l, c]) => ({ label: l, cls: c, sale: S(s), ref: S(rf), net: S(s) - S(rf) }));
+  const sum = (f, c) => rows.filter(r => !c || r.cls === c).reduce((a, r) => a + r[f], 0);
+  return { rows, ins: { sale: sum('sale', 'ins'), ref: sum('ref', 'ins'), net: sum('net', 'ins') },
+    non: { sale: sum('sale', 'non'), ref: sum('ref', 'non'), net: sum('net', 'non') }, all: { sale: sum('sale'), ref: sum('ref'), net: sum('net') } };
 }
 
 /* --- 勘定科目（[科目, 迷ったときのヒント]） --- */
@@ -332,20 +367,41 @@ const PAY_STATUS = ['支払済', '未払い', '従業員立替'];
 const INVOICE = ['あり', 'なし', '不明'];
 const EXP_STATUS = ['申請中', '差戻し', '承認済', '精算済'];
 
+const TRAVEL_MODES = ['電車', 'バス', 'その他'];
+const isTravel = acc => acc === '旅費交通費';
+// 経路 "船橋→西船橋→津田沼" ⇔ 配列
+const routeStr = stops => (stops || []).map(x => String(x || '').trim()).filter(Boolean).join('→');
+const routeArr = str => String(str || '').split('→').map(x => x.trim()).filter(Boolean);
 function normExpense(x) {
   const o = {
     payDate: String(x.payDate || ''), payee: String(x.payee || '').trim(), account: String(x.account || ''),
     amount: toNum(x.amount), method: String(x.method || ''), payStatus: String(x.payStatus || '支払済'),
     advancedBy: '', invoice: String(x.invoice || ''), comment: String(x.comment || ''), staff: String(x.staff || ''),
+    travelUser: '', travelMode: '', route: '', roundTrip: '', fare: '', purpose: '',
   };
   if (!/^\d{4}-\d{2}-\d{2}$/.test(o.payDate)) throw new Error('支払日を入力してください');
-  if (!o.payee) throw new Error('支払名を入力してください');
   if (!o.account) throw new Error('勘定科目を選んでください');
+  if (isTravel(o.account)) {
+    o.travelUser = String(x.travelUser || '').trim(); o.travelMode = String(x.travelMode || '').trim();
+    o.route = routeStr(routeArr(x.route)); o.roundTrip = x.roundTrip === '往復' ? '往復' : '片道'; o.fare = toNum(x.fare);
+    o.purpose = String(x.purpose || '').trim();
+    if (!o.travelUser) throw new Error('交通費を使った人を入力してください');
+    if (!o.travelMode || o.travelMode === 'その他（）') throw new Error('交通手段を選んでください');
+    if (routeArr(o.route).length < 2) throw new Error('乗車駅と降車駅を入力してください');
+    if (o.fare <= 0) throw new Error('乗車賃を入力してください');
+    if (!o.purpose) throw new Error('利用目的を入力してください');
+    o.amount = o.fare * (o.roundTrip === '往復' ? 2 : 1);
+    o.payee = `${o.travelMode} ${o.route}${o.roundTrip === '往復' ? '（往復）' : ''}`;
+    if (!o.invoice) o.invoice = '対象外';
+  }
+  if (!o.payee) throw new Error('支払名を入力してください');
   if (o.amount <= 0) throw new Error('金額を入力してください');
   if (!o.method) throw new Error('出金方法を選んでください');
   if (o.payStatus === '従業員立替') { o.advancedBy = String(x.advancedBy || '').trim(); if (!o.advancedBy) throw new Error('立替した人の名前を入力してください'); }
   return o;
 }
+const TPL_KEYS = ['payee', 'account', 'amount', 'method', 'payStatus', 'advancedBy', 'invoice', 'comment', 'travelUser', 'travelMode', 'route', 'roundTrip', 'fare', 'purpose'];
+const EXP_EDIT_KEYS = ['payDate', 'payee', 'account', 'amount', 'method', 'payStatus', 'advancedBy', 'invoice', 'comment', 'staff', 'travelUser', 'travelMode', 'route', 'roundTrip', 'fare', 'purpose'];
 
 /* ===== 小口現金出納帳 =====
  * 入金：補充（ATM出金→小口へ）・調整（本部）。取消済の補充は除外
@@ -383,19 +439,21 @@ function ledgerMonth(entries, month) {
 
 /* ===== 月報（PL） ===== */
 const RECEIPT_DEST = ['社保', '国保', '介護'];
+// [キー, 科目名, 区分, ヒント, 毎月同額(前月コピー対象)]
 const MONTHLY_INPUTS = [
-  ['claimAdjust', '返戻・査定などの調整（±）', '売上', '店舗のレセプト報告額に対する増減。減額はマイナス'],
-  ['otherIncome', 'その他収益', '売上', '雑収入など'],
-  ['drugPurchase', '医薬品購入費（卸請求額）', '原価', '卸からの月間請求額（返品・値引後）'],
-  ['goodsPurchase', '商品仕入（OTC・物販）', '原価', ''],
-  ['invChange', '在庫増減（期末在庫−期首在庫）', '原価', '在庫が増えたら＋（原価から差し引きます）'],
-  ['salary', '給与手当', '人件費', '従業員の給与・賞与・通勤手当'],
-  ['execComp', '役員報酬', '人件費', ''],
-  ['welfareLegal', '法定福利費', '人件費', '社会保険・労働保険の会社負担分'],
-  ['rent', '地代家賃', '販管費', ''],
-  ['lease', 'リース料', '販管費', '分包機・レセコン等'],
-  ['depreciation', '減価償却費', '販管費', ''],
-  ['otherSga', 'その他販管費（経費申請以外）', '販管費', '口座引落の通信費・保険料など'],
+  ['claimAdjust', '返戻・査定などの調整（±）', '売上', 'レセプト報告額に対する増減。減額はマイナス', false],
+  ['otherIncome', 'その他収益', '売上', '雑収入など', false],
+  ['drugPurchase', '医薬品購入費（卸請求額）', '原価', '卸からの月間請求額（返品・値引後）', false],
+  ['goodsPurchase', '商品仕入（請求額）', '原価', 'OTC・物販の仕入', false],
+  ['invChange', '在庫増減（期末在庫−期首在庫）', '原価', '在庫が増えたら＋（原価から差し引きます）', false],
+  ['salary', '給与手当', '人件費', '従業員の給与・賞与・通勤手当', false],
+  ['execComp', '役員報酬', '人件費', '', true],
+  ['welfareLegal', '法定福利費', '人件費', '社会保険・労働保険の会社負担分', false],
+  ['rent', '地代家賃', '販管費', '', true],
+  ['lease', 'リース料', '販管費', '分包機・レセコン等', true],
+  ['depreciation', '減価償却費', '販管費', '', true],
+  ['otherSga', 'その他販管費（経費申請以外）', '販管費', '口座引落の通信費・保険料など', false],
+  ['loanRepay', '銀行返済額（元金＋利息）', '返済', '借入の毎月の返済額', true],
 ];
 const PURCHASE_ACC = { '仕入高（医薬品）': 'drug', '仕入高（OTC・商品）': 'goods' };
 
@@ -405,25 +463,29 @@ function computePL(sales, expenses, manual, receipts) {
   const rx = { total: S('rxTotal') }; RX_FIELDS.forEach(([k]) => rx[k] = S(k));
   const exps = (expenses || []).filter(x => x.status !== '差戻し');
   const byAcc = {}; exps.forEach(x => byAcc[x.account] = (byAcc[x.account] || 0) + toNum(x.amount));
-  const P = {};
   const R = d => (receipts || []).filter(r => r.dest === d).reduce((a, r) => a + toNum(r.amount), 0);
-  P.windowIns = S('insurance'); P.claimShaho = R('社保'); P.claimKokuho = R('国保'); P.claimKaigo = R('介護'); P.claimAdjust = M('claimAdjust');
-  P.insRevenue = P.windowIns + P.claimShaho + P.claimKokuho + P.claimKaigo + P.claimAdjust;
-  P.selfPay = S('selfPay'); P.otc = S('otc'); P.goods = S('goods'); P.saleOther = S('saleOther'); P.refunds = -S('refTotal'); P.otherIncome = M('otherIncome');
-  P.nonIns = P.selfPay + P.otc + P.goods + P.saleOther + P.refunds + P.otherIncome;
+  const net = (s, rf) => S(s) - S(rf);
+  const P = { M: {} };
+  MONTHLY_INPUTS.forEach(([k]) => P.M[k] = M(k));
+  P.windowIns = net('insurance', 'refIns'); P.insSelf = net('insSelf', 'refInsSelf');
+  P.claimShaho = R('社保'); P.claimKokuho = R('国保'); P.claimKaigo = R('介護'); P.claimAdjust = M('claimAdjust');
+  P.insRevenue = P.windowIns + P.insSelf + P.claimShaho + P.claimKokuho + P.claimKaigo + P.claimAdjust;
+  P.selfPay = net('selfPay', 'refSelf'); P.otc = net('otc', 'refOtc'); P.goods = net('goods', 'refGoods'); P.saleOther = net('saleOther', 'refOther'); P.otherIncome = M('otherIncome');
+  P.nonIns = P.selfPay + P.otc + P.goods + P.saleOther + P.otherIncome;
   P.revenue = P.insRevenue + P.nonIns;
   P.drugInvoice = M('drugPurchase'); P.drugExp = byAcc['仕入高（医薬品）'] || 0; P.drug = P.drugInvoice + P.drugExp;
-  P.goodsCost = M('goodsPurchase') + (byAcc['仕入高（OTC・商品）'] || 0);
-  P.invChange = -M('invChange');
-  P.cogs = P.drug + P.goodsCost + P.invChange;
+  P.goodsInvoice = M('goodsPurchase'); P.goodsExp = byAcc['仕入高（OTC・商品）'] || 0; P.goodsCost = P.goodsInvoice + P.goodsExp;
+  P.invChange = M('invChange');
+  P.cogs = P.drug + P.goodsCost - P.invChange;
   P.gross = P.revenue - P.cogs;
   P.salary = M('salary'); P.execComp = M('execComp'); P.welfareLegal = M('welfareLegal');
   P.labor = P.salary + P.execComp + P.welfareLegal;
-  P.rent = M('rent') + (byAcc['地代家賃'] || 0); P.lease = M('lease'); P.depreciation = M('depreciation'); P.otherSga = M('otherSga');
-  P.expLines = Object.entries(byAcc).filter(([a]) => !PURCHASE_ACC[a] && a !== '地代家賃').sort((a, b) => b[1] - a[1]);
+  P.rent = M('rent'); P.lease = M('lease'); P.depreciation = M('depreciation'); P.otherSga = M('otherSga');
+  P.expLines = Object.entries(byAcc).filter(([a]) => !PURCHASE_ACC[a]).sort((a, b) => b[1] - a[1]);
   P.expTotal = P.expLines.reduce((a, [, v]) => a + v, 0);
   P.sga = P.labor + P.rent + P.lease + P.depreciation + P.otherSga + P.expTotal;
   P.op = P.gross - P.sga;
+  P.loanRepay = M('loanRepay'); P.afterRepay = P.op - P.loanRepay;
   P.cashOverShort = S('cashOverShort');
   P.days = (sales || []).length; P.rx = rx;
   P.conc = rx.total ? (rx[RX_FIELDS[0][0]] / rx.total * 100) : 0;
@@ -510,7 +572,7 @@ async function mockApi(p) {
     listTemplates: () => { const s = auth(); return d.templates.filter(t => t.storeId === s.storeId); },
     saveTemplate: () => {
       const s = auth(), t = p.template; if (!t.name) throw new Error('テンプレート名を入力してください');
-      const o = { id: uid('T'), storeId: s.storeId, name: t.name, payee: t.payee || '', account: t.account || '', amount: toNum(t.amount) || '', method: t.method || '', payStatus: t.payStatus || '', invoice: t.invoice || '', comment: t.comment || '', createdAt: now };
+      const o = { id: uid('T'), storeId: s.storeId, name: t.name, createdAt: now }; TPL_KEYS.forEach(k => o[k] = t[k] ?? '');
       d.templates.push(o); msave(d); return o;
     },
     deleteTemplate: () => { const s = auth(); d.templates = d.templates.filter(t => !(t.id === p.id && t.storeId === s.storeId)); msave(d); return true; },
@@ -527,7 +589,8 @@ async function mockApi(p) {
     hqListPetty: () => { hq(); return { petty: d.petty.filter(x => x.storeId === p.storeId), expenses: d.expenses.filter(x => x.storeId === p.storeId && x.method === '小口現金') }; },
     hqUpdatePetty: () => {
       hq(); const x = d.petty.find(r => r.id === p.id); if (!x) throw new Error('記録が見つかりません');
-      ['status', 'hqComment'].forEach(k => { if (p[k] !== undefined) x[k] = p[k]; }); x.updatedAt = now; msave(d); return x;
+      ['status', 'hqComment', 'date', 'memo'].forEach(k => { if (p[k] !== undefined) x[k] = p[k]; }); if (p.amount !== undefined) x.amount = toNum(p.amount);
+      x.updatedAt = now; msave(d); return x;
     },
     hqAddPetty: () => {
       hq(); const st = d.stores.find(r => r.storeId === p.storeId); if (!st) throw new Error('店舗を選んでください');
@@ -550,7 +613,27 @@ async function mockApi(p) {
       hq(); if (!p.storeId || !/^\d{4}-\d{2}$/.test(p.month || '')) throw new Error('店舗と月を指定してください');
       let r = d.monthly.find(x => x.storeId === p.storeId && x.month === p.month);
       if (!r) { r = { id: uid('M'), storeId: p.storeId, month: p.month }; d.monthly.push(r); }
-      MONTHLY_INPUTS.forEach(([k]) => r[k] = toNum((p.values || {})[k])); r.updatedAt = now; msave(d); return r;
+      MONTHLY_INPUTS.forEach(([k]) => { const v = (p.values || {})[k]; r[k] = (v === '' || v == null) ? '' : toNum(v); }); r.updatedAt = now; msave(d); return r;
+    },
+    hqSaveSales: () => {
+      hq(); const st = d.stores.find(x => x.storeId === p.storeId); if (!st) throw new Error('店舗が見つかりません');
+      const o = calcSales(p.report); Object.assign(o, { storeId: st.storeId, storeName: st.storeName, editedBy: '本部' });
+      const i = d.sales.findIndex(x => x.storeId === st.storeId && x.date === o.date);
+      if (i >= 0) { o.id = d.sales[i].id; o.createdAt = d.sales[i].createdAt; o.updatedAt = now; d.sales[i] = o; }
+      else { o.id = uid('S'); o.createdAt = o.updatedAt = now; d.sales.push(o); }
+      msave(d); return o;
+    },
+    hqSaveExpense: () => {
+      hq(); const ex = d.expenses.find(x => x.id === p.expense.id); if (!ex) throw new Error('申請が見つかりません');
+      const o = normExpense(p.expense); Object.assign(ex, o, { receipts: p.expense.keepReceipts || ex.receipts, editedBy: '本部', updatedAt: now }); msave(d); return ex;
+    },
+    hqSaveReceiptReport: () => {
+      hq(); const st = d.stores.find(x => x.storeId === p.storeId); if (!st) throw new Error('店舗が見つかりません');
+      const o = normReceipt({ ...p.report, staff: p.report.staff || '本部' });
+      let r = d.receipts.find(y => y.storeId === st.storeId && y.month === o.month && y.dest === o.dest);
+      if (r) Object.assign(r, o, { editedBy: '本部', updatedAt: now });
+      else { r = { id: uid('R'), storeId: st.storeId, storeName: st.storeName, ...o, receipts: [], editedBy: '本部', createdAt: now, updatedAt: now }; d.receipts.push(r); }
+      msave(d); return r;
     },
     hqLogin: () => { hq(); return { stores: d.stores.map(s => ({ storeId: s.storeId, storeName: s.storeName, active: s.active })) }; },
     hqListSales: () => { hq(); return d.sales.filter(x => x.date.startsWith(p.month) && (!p.storeId || x.storeId === p.storeId)); },
@@ -636,7 +719,7 @@ $$('.nav button').forEach(b => b.addEventListener('click', () => {
 let salesToken = 0, osNeg = false;
 function buildSalesForm() {
   $('#salesGroups').innerHTML = SALES_GROUPS.map(g => `
-    <div class="card"><h3>${esc(g.title)}<span class="tot" id="t_${g.total}">¥0</span></h3>
+    <div class="card"><h3>${esc(g.title)}<span class="tot" id="t_${g.total}">¥0</span></h3>${g.total === 'refTotal' ? '<div class="hint" style="margin:2px 0 4px">返金した金額を、売上と同じ科目に入力（プラスの数字で）</div>' : ''}
     ${g.fields.map(([k, l]) => `<div class="row"><label for="f_${k}">${esc(l)}</label><input type="text" inputmode="numeric" class="money sf" id="f_${k}" data-k="${k}" placeholder="0"></div>`).join('')}
     </div>`).join('');
   $('#rxRows').innerHTML = RX_FIELDS.map(([k, l]) => `
@@ -669,6 +752,7 @@ function recalc() {
   const o = calcSales({ ...readSales(), date: $('#sDate').value || '2000-01-01' });
   SALES_GROUPS.forEach(g => $('#t_' + g.total).textContent = yen(o[g.total]));
   $('#ckIn').textContent = yen(o.inTotal); $('#ckNet').textContent = yen(o.saleTotal - o.refTotal);
+  $('#ckIns').textContent = yen(o.insNet); $('#ckNon').textContent = yen(o.nonInsNet);
   const d = $('#ckDiff'); d.className = 'diffbox ' + (o.diff === 0 ? 'ok' : 'ng');
   d.innerHTML = `<span>差額${o.diff === 0 ? '（一致）' : '（要確認）'}</span><span>${yen(o.diff)}</span>`;
   $('#rxTotal').textContent = o.rxTotal + '枚'; $('#barSale').textContent = yen(o.saleTotal);
@@ -717,7 +801,13 @@ let exPhotos = [], exKeep = [], exEditId = null, templates = [], recentExp = [];
 function buildExpForm() {
   $('#exAccount').innerHTML = '<option value="">選択してください</option>' + ACCOUNTS.map(([a]) => `<option>${esc(a)}</option>`).join('');
   seg($('#exMethod'), METHODS, ''); seg($('#exPayStatus'), PAY_STATUS, '支払済'); seg($('#exInvoice'), INVOICE, '');
-  $('#exAccount').addEventListener('change', accHint);
+  $('#exAccount').addEventListener('change', () => { accHint(); travelToggle(); });
+  seg($('#trMode'), TRAVEL_MODES, '電車'); seg($('#trRound'), ['片道', '往復'], '片道');
+  $('#trMode').addEventListener('change', () => $('#trModeOther').classList.toggle('hidden', $('#trMode').dataset.value !== 'その他'));
+  $('#trRound').addEventListener('change', trCalc);
+  $('#trFare').addEventListener('input', trCalc); $('#trFare').addEventListener('blur', e => fmtMoneyInput(e.target));
+  $('#trAddVia').addEventListener('click', () => addVia(''));
+  $('#trUser').addEventListener('input', () => { if ($('#exPayStatus').dataset.value === '従業員立替') $('#exAdvancedBy').value = $('#trUser').value; });
   $('#exPayStatus').addEventListener('change', advToggle);
   $('#exAmount').addEventListener('blur', e => fmtMoneyInput(e.target));
   $('#exSaveTpl').addEventListener('change', e => $('#exTplName').classList.toggle('hidden', !e.target.checked));
@@ -728,6 +818,37 @@ function buildExpForm() {
   $('#exTplBtn').addEventListener('click', openTplSheet);
 }
 function accHint() { const a = ACCOUNTS.find(x => x[0] === $('#exAccount').value); $('#exAccHint').textContent = a ? a[1] : '迷ったら「不明」を選べば本部で振り分けます'; }
+function addVia(v) {
+  const d = document.createElement('div'); d.className = 'field via';
+  d.innerHTML = `<label>乗り換え駅</label><div class="flex"><input type="text" value="${esc(v)}" placeholder="例：西船橋" style="flex:1"><button type="button" class="btn sm danger">削除</button></div>`;
+  d.querySelector('button').addEventListener('click', () => d.remove()); $('#trVia').appendChild(d);
+}
+function trCalc() {
+  const f = toNum($('#trFare').value), rt = $('#trRound').dataset.value === '往復';
+  $('#trCalc').textContent = f ? `申請金額：${yen(f * (rt ? 2 : 1))}${rt ? '（往復）' : ''}` : '';
+}
+function travelToggle() {
+  const t = isTravel($('#exAccount').value);
+  $('#trWrap').classList.toggle('hidden', !t);
+  ['#exPayeeWrap', '#exAmountWrap', '#exInvWrap'].forEach(id => $(id).classList.toggle('hidden', t));
+  if (t && !exEditId && !$('#trUser').value) {
+    $('#trUser').value = $('#exStaff').value || cfg.staff || '';
+    if ($('#exPayStatus').dataset.value === '支払済') { setSeg($('#exPayStatus'), '従業員立替'); advToggle(); $('#exAdvancedBy').value = $('#trUser').value; }
+  }
+}
+function readTravel() {
+  const mode = $('#trMode').dataset.value === 'その他' ? `その他（${$('#trModeOther').value.trim()}）` : $('#trMode').dataset.value;
+  return { travelUser: $('#trUser').value, travelMode: mode, route: routeStr([$('#trFrom').value, ...$$('#trVia .via input').map(i => i.value), $('#trTo').value]),
+    roundTrip: $('#trRound').dataset.value, fare: toNum($('#trFare').value), purpose: $('#trPurpose').value };
+}
+function fillTravel(x) {
+  $('#trUser').value = x.travelUser || ''; const m = String(x.travelMode || '電車');
+  if (m.startsWith('その他')) { setSeg($('#trMode'), 'その他'); $('#trModeOther').value = m.replace(/^その他（|）$/g, ''); } else { setSeg($('#trMode'), m); $('#trModeOther').value = ''; }
+  $('#trModeOther').classList.toggle('hidden', $('#trMode').dataset.value !== 'その他');
+  const st = routeArr(x.route); $('#trVia').innerHTML = '';
+  $('#trFrom').value = st[0] || ''; $('#trTo').value = st.length > 1 ? st[st.length - 1] : ''; st.slice(1, -1).forEach(addVia);
+  setSeg($('#trRound'), x.roundTrip || '片道'); $('#trFare').value = toNum(x.fare) ? toNum(x.fare).toLocaleString() : ''; $('#trPurpose').value = x.purpose || ''; trCalc();
+}
 function advToggle() { $('#exAdvWrap').classList.toggle('hidden', $('#exPayStatus').dataset.value !== '従業員立替'); }
 function resetExp() {
   exPhotos = []; exKeep = []; exEditId = null;
@@ -735,7 +856,7 @@ function resetExp() {
   $('#exAccount').value = ''; setSeg($('#exMethod'), ''); setSeg($('#exPayStatus'), '支払済'); setSeg($('#exInvoice'), '');
   $('#exStaff').value = cfg.staff || ''; $('#exSaveTpl').checked = false; $('#exTplName').classList.add('hidden');
   $('#exEditBanner').classList.add('hidden'); $('#exSubmit').textContent = '申請する';
-  accHint(); advToggle(); renderThumbs();
+  fillTravel({}); accHint(); advToggle(); travelToggle(); renderThumbs();
 }
 function fillExp(x, { keepDate = false, edit = false } = {}) {
   resetExp();
@@ -744,13 +865,14 @@ function fillExp(x, { keepDate = false, edit = false } = {}) {
   $('#exAmount').value = toNum(x.amount) ? toNum(x.amount).toLocaleString('ja-JP') : '';
   setSeg($('#exMethod'), x.method || ''); setSeg($('#exPayStatus'), x.payStatus || '支払済'); setSeg($('#exInvoice'), x.invoice || '');
   $('#exAdvancedBy').value = x.advancedBy || ''; $('#exComment').value = x.comment || '';
+  fillTravel(x);
   if (edit) {
     exEditId = x.id; exKeep = (x.receipts || []).slice(); $('#exStaff').value = x.staff || cfg.staff || '';
     const b = $('#exEditBanner'); b.classList.remove('hidden');
     b.innerHTML = `<b>差戻しされた申請を修正中</b><br>本部コメント：${esc(x.hqComment || '（なし）')}`;
     $('#exSubmit').textContent = '修正して再申請';
   }
-  accHint(); advToggle(); renderThumbs();
+  accHint(); advToggle(); travelToggle(); renderThumbs();
 }
 async function compressImage(file, max = 1600, q = 0.75) {
   const url = URL.createObjectURL(file);
@@ -793,13 +915,14 @@ function readExp() {
     id: exEditId || undefined, payDate: $('#exPayDate').value, payee: $('#exPayee').value, account: $('#exAccount').value,
     amount: toNum($('#exAmount').value), method: $('#exMethod').dataset.value, payStatus: $('#exPayStatus').dataset.value,
     advancedBy: $('#exAdvancedBy').value, invoice: $('#exInvoice').dataset.value, comment: $('#exComment').value, staff: $('#exStaff').value,
+    ...(isTravel($('#exAccount').value) ? readTravel() : {}),
   };
 }
 async function submitExp() {
   const x = readExp();
-  try { normExpense(x); if (!x.staff.trim()) throw new Error('申請者を入力してください'); } catch (e) { return toast(e.message, 'err'); }
+  try { const n = normExpense(x); x.payee = n.payee; x.amount = n.amount; x.invoice = n.invoice; if (!x.staff.trim()) throw new Error('申請者を入力してください'); } catch (e) { return toast(e.message, 'err'); }
   if ($('#exSaveTpl').checked && !$('#exTplName').value.trim()) return toast('テンプレート名を入力してください', 'err');
-  if (!exPhotos.length && !exKeep.length && !confirm('領収書・請求書の写真がありません。このまま申請しますか？')) return;
+  if (!exPhotos.length && !exKeep.length && !isTravel(x.account) && !confirm('領収書・請求書の写真がありません。このまま申請しますか？')) return;
   // 重複チェック（同じ日・同じ金額・同じ支払名）
   if (!exEditId && recentExp.some(r => r.payDate === x.payDate && toNum(r.amount) === x.amount && r.payee === x.payee.trim())
       && !confirm('同じ日付・金額・支払名の申請がすでにあります。重複していませんか？\nこのまま申請しますか？')) return;
@@ -1006,6 +1129,7 @@ async function loadStores(silent) {
   } catch (e) { if (!silent) toast(e.message, 'err'); }
 }
 $('#cfgLoad').addEventListener('click', () => loadStores(false));
+$('#cfgApi').addEventListener('change', () => { $('#cfgStore').innerHTML = '<option value="">読込中…</option>'; loadStores(false); });
 $('#cfgSave').addEventListener('click', async () => {
   const next = { apiUrl: $('#cfgApi').value.trim(), storeId: $('#cfgStore').value, passcode: $('#cfgPass').value.trim(), staff: $('#cfgStaff').value.trim() };
   if (!next.storeId) return toast('店舗を選択してください（読込ボタン）', 'err');
