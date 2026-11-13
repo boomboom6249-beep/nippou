@@ -105,6 +105,11 @@ tfoot td{font-weight:700;background:#f8faf9}
 .pl tr.b td{font-weight:700}
 .pl tr.hl td{background:var(--pri2);font-weight:800}
 .pl td.neg{color:var(--red)}
+.pl td.unset{background:#fff3c4}
+.pl td.unset input{background:#fffbea;border-color:#e8c65a}
+.pl input.pin{width:130px;padding:5px 8px;font-size:13px;display:inline-block}
+.pl .cp1{padding:3px 7px;font-size:11px;margin-left:4px}
+td.click{cursor:pointer}td.click:hover{background:#f6fbf9}
 .grid2{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:12px;align-items:start}
 @media(max-width:900px){.grid2{grid-template-columns:1fr}}
 .minp .row>label{flex-basis:15em}
@@ -164,21 +169,40 @@ const WEEK = ['日', '月', '火', '水', '木', '金', '土'];
 const dow = ds => WEEK[new Date(ds + 'T00:00:00').getDay()];
 
 /* --- 売上日報の項目定義（ラベルはここで変更可。キーは変えないこと） --- */
+// 販売科目と返金科目の対応 [販売キー, 返金キー, 科目名, 区分(ins=保険/non=保険外)]
+const SALE_ITEMS = [
+  ['insurance', 'refIns', '保険売上', 'ins'],
+  ['insSelf', 'refInsSelf', '保険売上（自費）', 'ins'],
+  ['selfPay', 'refSelf', '自費医療（課税）', 'non'],
+  ['otc', 'refOtc', 'OTC', 'non'],
+  ['goods', 'refGoods', '商品', 'non'],
+  ['saleOther', 'refOther', 'その他', 'non'],
+];
 const SALES_GROUPS = [
   { title: '入金', fields: [['cash', '現金売上'], ['cashless', 'キャッシュレス'], ['receivable', '売掛'], ['inOther', 'その他']], total: 'inTotal' },
-  { title: '販売商品', fields: [['insurance', '保険売上'], ['selfPay', '自費'], ['otc', 'OTC'], ['goods', '商品'], ['saleOther', 'その他']], total: 'saleTotal' },
-  { title: '返金対応', fields: [['refSelf', '自費精算'], ['refGoods', '商品返金'], ['refOther', 'その他']], total: 'refTotal' },
+  { title: '販売商品', fields: SALE_ITEMS.map(x => [x[0], x[2]]), total: 'saleTotal' },
+  { title: '返金対応', fields: SALE_ITEMS.map(x => [x[1], x[2]]), total: 'refTotal' },
 ];
-const RX_FIELDS = [['rxEndo', 'えんどう内科'], ['rxHome', '在宅'], ['rxOther', '面処方']];
+const RX_FIELDS = [['rxEndo', '主クリニック'], ['rxHome', '在宅'], ['rxOther', '面処方']];
 
 function calcSales(r) {
   const o = { date: String(r.date || ''), comment: String(r.comment || ''), staff: String(r.staff || '') };
   if (!/^\d{4}-\d{2}-\d{2}$/.test(o.date)) throw new Error('日付が正しくありません');
   SALES_GROUPS.forEach(g => { let t = 0; g.fields.forEach(([k]) => { o[k] = toNum(r[k]); t += o[k]; }); o[g.total] = t; });
+  o.insNet = 0; o.nonInsNet = 0;
+  SALE_ITEMS.forEach(([s, rf, , c]) => { o[c === 'ins' ? 'insNet' : 'nonInsNet'] += o[s] - o[rf]; });
   o.diff = o.inTotal - (o.saleTotal - o.refTotal);
   o.cashOverShort = toNum(r.cashOverShort);
   let rx = 0; RX_FIELDS.forEach(([k]) => { o[k] = toNum(r[k]); rx += o[k]; }); o.rxTotal = rx;
   return o;
+}
+// 科目別集計（売上・返金・差引）
+function salesBySubject(list) {
+  const S = k => (list || []).reduce((a, r) => a + toNum(r[k]), 0);
+  const rows = SALE_ITEMS.map(([s, rf, l, c]) => ({ label: l, cls: c, sale: S(s), ref: S(rf), net: S(s) - S(rf) }));
+  const sum = (f, c) => rows.filter(r => !c || r.cls === c).reduce((a, r) => a + r[f], 0);
+  return { rows, ins: { sale: sum('sale', 'ins'), ref: sum('ref', 'ins'), net: sum('net', 'ins') },
+    non: { sale: sum('sale', 'non'), ref: sum('ref', 'non'), net: sum('net', 'non') }, all: { sale: sum('sale'), ref: sum('ref'), net: sum('net') } };
 }
 
 /* --- 勘定科目（[科目, 迷ったときのヒント]） --- */
@@ -209,20 +233,41 @@ const PAY_STATUS = ['支払済', '未払い', '従業員立替'];
 const INVOICE = ['あり', 'なし', '不明'];
 const EXP_STATUS = ['申請中', '差戻し', '承認済', '精算済'];
 
+const TRAVEL_MODES = ['電車', 'バス', 'その他'];
+const isTravel = acc => acc === '旅費交通費';
+// 経路 "船橋→西船橋→津田沼" ⇔ 配列
+const routeStr = stops => (stops || []).map(x => String(x || '').trim()).filter(Boolean).join('→');
+const routeArr = str => String(str || '').split('→').map(x => x.trim()).filter(Boolean);
 function normExpense(x) {
   const o = {
     payDate: String(x.payDate || ''), payee: String(x.payee || '').trim(), account: String(x.account || ''),
     amount: toNum(x.amount), method: String(x.method || ''), payStatus: String(x.payStatus || '支払済'),
     advancedBy: '', invoice: String(x.invoice || ''), comment: String(x.comment || ''), staff: String(x.staff || ''),
+    travelUser: '', travelMode: '', route: '', roundTrip: '', fare: '', purpose: '',
   };
   if (!/^\d{4}-\d{2}-\d{2}$/.test(o.payDate)) throw new Error('支払日を入力してください');
-  if (!o.payee) throw new Error('支払名を入力してください');
   if (!o.account) throw new Error('勘定科目を選んでください');
+  if (isTravel(o.account)) {
+    o.travelUser = String(x.travelUser || '').trim(); o.travelMode = String(x.travelMode || '').trim();
+    o.route = routeStr(routeArr(x.route)); o.roundTrip = x.roundTrip === '往復' ? '往復' : '片道'; o.fare = toNum(x.fare);
+    o.purpose = String(x.purpose || '').trim();
+    if (!o.travelUser) throw new Error('交通費を使った人を入力してください');
+    if (!o.travelMode || o.travelMode === 'その他（）') throw new Error('交通手段を選んでください');
+    if (routeArr(o.route).length < 2) throw new Error('乗車駅と降車駅を入力してください');
+    if (o.fare <= 0) throw new Error('乗車賃を入力してください');
+    if (!o.purpose) throw new Error('利用目的を入力してください');
+    o.amount = o.fare * (o.roundTrip === '往復' ? 2 : 1);
+    o.payee = `${o.travelMode} ${o.route}${o.roundTrip === '往復' ? '（往復）' : ''}`;
+    if (!o.invoice) o.invoice = '対象外';
+  }
+  if (!o.payee) throw new Error('支払名を入力してください');
   if (o.amount <= 0) throw new Error('金額を入力してください');
   if (!o.method) throw new Error('出金方法を選んでください');
   if (o.payStatus === '従業員立替') { o.advancedBy = String(x.advancedBy || '').trim(); if (!o.advancedBy) throw new Error('立替した人の名前を入力してください'); }
   return o;
 }
+const TPL_KEYS = ['payee', 'account', 'amount', 'method', 'payStatus', 'advancedBy', 'invoice', 'comment', 'travelUser', 'travelMode', 'route', 'roundTrip', 'fare', 'purpose'];
+const EXP_EDIT_KEYS = ['payDate', 'payee', 'account', 'amount', 'method', 'payStatus', 'advancedBy', 'invoice', 'comment', 'staff', 'travelUser', 'travelMode', 'route', 'roundTrip', 'fare', 'purpose'];
 
 /* ===== 小口現金出納帳 =====
  * 入金：補充（ATM出金→小口へ）・調整（本部）。取消済の補充は除外
@@ -260,19 +305,21 @@ function ledgerMonth(entries, month) {
 
 /* ===== 月報（PL） ===== */
 const RECEIPT_DEST = ['社保', '国保', '介護'];
+// [キー, 科目名, 区分, ヒント, 毎月同額(前月コピー対象)]
 const MONTHLY_INPUTS = [
-  ['claimAdjust', '返戻・査定などの調整（±）', '売上', '店舗のレセプト報告額に対する増減。減額はマイナス'],
-  ['otherIncome', 'その他収益', '売上', '雑収入など'],
-  ['drugPurchase', '医薬品購入費（卸請求額）', '原価', '卸からの月間請求額（返品・値引後）'],
-  ['goodsPurchase', '商品仕入（OTC・物販）', '原価', ''],
-  ['invChange', '在庫増減（期末在庫−期首在庫）', '原価', '在庫が増えたら＋（原価から差し引きます）'],
-  ['salary', '給与手当', '人件費', '従業員の給与・賞与・通勤手当'],
-  ['execComp', '役員報酬', '人件費', ''],
-  ['welfareLegal', '法定福利費', '人件費', '社会保険・労働保険の会社負担分'],
-  ['rent', '地代家賃', '販管費', ''],
-  ['lease', 'リース料', '販管費', '分包機・レセコン等'],
-  ['depreciation', '減価償却費', '販管費', ''],
-  ['otherSga', 'その他販管費（経費申請以外）', '販管費', '口座引落の通信費・保険料など'],
+  ['claimAdjust', '返戻・査定などの調整（±）', '売上', 'レセプト報告額に対する増減。減額はマイナス', false],
+  ['otherIncome', 'その他収益', '売上', '雑収入など', false],
+  ['drugPurchase', '医薬品購入費（卸請求額）', '原価', '卸からの月間請求額（返品・値引後）', false],
+  ['goodsPurchase', '商品仕入（請求額）', '原価', 'OTC・物販の仕入', false],
+  ['invChange', '在庫増減（期末在庫−期首在庫）', '原価', '在庫が増えたら＋（原価から差し引きます）', false],
+  ['salary', '給与手当', '人件費', '従業員の給与・賞与・通勤手当', false],
+  ['execComp', '役員報酬', '人件費', '', true],
+  ['welfareLegal', '法定福利費', '人件費', '社会保険・労働保険の会社負担分', false],
+  ['rent', '地代家賃', '販管費', '', true],
+  ['lease', 'リース料', '販管費', '分包機・レセコン等', true],
+  ['depreciation', '減価償却費', '販管費', '', true],
+  ['otherSga', 'その他販管費（経費申請以外）', '販管費', '口座引落の通信費・保険料など', false],
+  ['loanRepay', '銀行返済額（元金＋利息）', '返済', '借入の毎月の返済額', true],
 ];
 const PURCHASE_ACC = { '仕入高（医薬品）': 'drug', '仕入高（OTC・商品）': 'goods' };
 
@@ -282,25 +329,29 @@ function computePL(sales, expenses, manual, receipts) {
   const rx = { total: S('rxTotal') }; RX_FIELDS.forEach(([k]) => rx[k] = S(k));
   const exps = (expenses || []).filter(x => x.status !== '差戻し');
   const byAcc = {}; exps.forEach(x => byAcc[x.account] = (byAcc[x.account] || 0) + toNum(x.amount));
-  const P = {};
   const R = d => (receipts || []).filter(r => r.dest === d).reduce((a, r) => a + toNum(r.amount), 0);
-  P.windowIns = S('insurance'); P.claimShaho = R('社保'); P.claimKokuho = R('国保'); P.claimKaigo = R('介護'); P.claimAdjust = M('claimAdjust');
-  P.insRevenue = P.windowIns + P.claimShaho + P.claimKokuho + P.claimKaigo + P.claimAdjust;
-  P.selfPay = S('selfPay'); P.otc = S('otc'); P.goods = S('goods'); P.saleOther = S('saleOther'); P.refunds = -S('refTotal'); P.otherIncome = M('otherIncome');
-  P.nonIns = P.selfPay + P.otc + P.goods + P.saleOther + P.refunds + P.otherIncome;
+  const net = (s, rf) => S(s) - S(rf);
+  const P = { M: {} };
+  MONTHLY_INPUTS.forEach(([k]) => P.M[k] = M(k));
+  P.windowIns = net('insurance', 'refIns'); P.insSelf = net('insSelf', 'refInsSelf');
+  P.claimShaho = R('社保'); P.claimKokuho = R('国保'); P.claimKaigo = R('介護'); P.claimAdjust = M('claimAdjust');
+  P.insRevenue = P.windowIns + P.insSelf + P.claimShaho + P.claimKokuho + P.claimKaigo + P.claimAdjust;
+  P.selfPay = net('selfPay', 'refSelf'); P.otc = net('otc', 'refOtc'); P.goods = net('goods', 'refGoods'); P.saleOther = net('saleOther', 'refOther'); P.otherIncome = M('otherIncome');
+  P.nonIns = P.selfPay + P.otc + P.goods + P.saleOther + P.otherIncome;
   P.revenue = P.insRevenue + P.nonIns;
   P.drugInvoice = M('drugPurchase'); P.drugExp = byAcc['仕入高（医薬品）'] || 0; P.drug = P.drugInvoice + P.drugExp;
-  P.goodsCost = M('goodsPurchase') + (byAcc['仕入高（OTC・商品）'] || 0);
-  P.invChange = -M('invChange');
-  P.cogs = P.drug + P.goodsCost + P.invChange;
+  P.goodsInvoice = M('goodsPurchase'); P.goodsExp = byAcc['仕入高（OTC・商品）'] || 0; P.goodsCost = P.goodsInvoice + P.goodsExp;
+  P.invChange = M('invChange');
+  P.cogs = P.drug + P.goodsCost - P.invChange;
   P.gross = P.revenue - P.cogs;
   P.salary = M('salary'); P.execComp = M('execComp'); P.welfareLegal = M('welfareLegal');
   P.labor = P.salary + P.execComp + P.welfareLegal;
-  P.rent = M('rent') + (byAcc['地代家賃'] || 0); P.lease = M('lease'); P.depreciation = M('depreciation'); P.otherSga = M('otherSga');
-  P.expLines = Object.entries(byAcc).filter(([a]) => !PURCHASE_ACC[a] && a !== '地代家賃').sort((a, b) => b[1] - a[1]);
+  P.rent = M('rent'); P.lease = M('lease'); P.depreciation = M('depreciation'); P.otherSga = M('otherSga');
+  P.expLines = Object.entries(byAcc).filter(([a]) => !PURCHASE_ACC[a]).sort((a, b) => b[1] - a[1]);
   P.expTotal = P.expLines.reduce((a, [, v]) => a + v, 0);
   P.sga = P.labor + P.rent + P.lease + P.depreciation + P.otherSga + P.expTotal;
   P.op = P.gross - P.sga;
+  P.loanRepay = M('loanRepay'); P.afterRepay = P.op - P.loanRepay;
   P.cashOverShort = S('cashOverShort');
   P.days = (sales || []).length; P.rx = rx;
   P.conc = rx.total ? (rx[RX_FIELDS[0][0]] / rx.total * 100) : 0;
@@ -387,7 +438,7 @@ async function mockApi(p) {
     listTemplates: () => { const s = auth(); return d.templates.filter(t => t.storeId === s.storeId); },
     saveTemplate: () => {
       const s = auth(), t = p.template; if (!t.name) throw new Error('テンプレート名を入力してください');
-      const o = { id: uid('T'), storeId: s.storeId, name: t.name, payee: t.payee || '', account: t.account || '', amount: toNum(t.amount) || '', method: t.method || '', payStatus: t.payStatus || '', invoice: t.invoice || '', comment: t.comment || '', createdAt: now };
+      const o = { id: uid('T'), storeId: s.storeId, name: t.name, createdAt: now }; TPL_KEYS.forEach(k => o[k] = t[k] ?? '');
       d.templates.push(o); msave(d); return o;
     },
     deleteTemplate: () => { const s = auth(); d.templates = d.templates.filter(t => !(t.id === p.id && t.storeId === s.storeId)); msave(d); return true; },
@@ -404,7 +455,8 @@ async function mockApi(p) {
     hqListPetty: () => { hq(); return { petty: d.petty.filter(x => x.storeId === p.storeId), expenses: d.expenses.filter(x => x.storeId === p.storeId && x.method === '小口現金') }; },
     hqUpdatePetty: () => {
       hq(); const x = d.petty.find(r => r.id === p.id); if (!x) throw new Error('記録が見つかりません');
-      ['status', 'hqComment'].forEach(k => { if (p[k] !== undefined) x[k] = p[k]; }); x.updatedAt = now; msave(d); return x;
+      ['status', 'hqComment', 'date', 'memo'].forEach(k => { if (p[k] !== undefined) x[k] = p[k]; }); if (p.amount !== undefined) x.amount = toNum(p.amount);
+      x.updatedAt = now; msave(d); return x;
     },
     hqAddPetty: () => {
       hq(); const st = d.stores.find(r => r.storeId === p.storeId); if (!st) throw new Error('店舗を選んでください');
@@ -427,7 +479,27 @@ async function mockApi(p) {
       hq(); if (!p.storeId || !/^\d{4}-\d{2}$/.test(p.month || '')) throw new Error('店舗と月を指定してください');
       let r = d.monthly.find(x => x.storeId === p.storeId && x.month === p.month);
       if (!r) { r = { id: uid('M'), storeId: p.storeId, month: p.month }; d.monthly.push(r); }
-      MONTHLY_INPUTS.forEach(([k]) => r[k] = toNum((p.values || {})[k])); r.updatedAt = now; msave(d); return r;
+      MONTHLY_INPUTS.forEach(([k]) => { const v = (p.values || {})[k]; r[k] = (v === '' || v == null) ? '' : toNum(v); }); r.updatedAt = now; msave(d); return r;
+    },
+    hqSaveSales: () => {
+      hq(); const st = d.stores.find(x => x.storeId === p.storeId); if (!st) throw new Error('店舗が見つかりません');
+      const o = calcSales(p.report); Object.assign(o, { storeId: st.storeId, storeName: st.storeName, editedBy: '本部' });
+      const i = d.sales.findIndex(x => x.storeId === st.storeId && x.date === o.date);
+      if (i >= 0) { o.id = d.sales[i].id; o.createdAt = d.sales[i].createdAt; o.updatedAt = now; d.sales[i] = o; }
+      else { o.id = uid('S'); o.createdAt = o.updatedAt = now; d.sales.push(o); }
+      msave(d); return o;
+    },
+    hqSaveExpense: () => {
+      hq(); const ex = d.expenses.find(x => x.id === p.expense.id); if (!ex) throw new Error('申請が見つかりません');
+      const o = normExpense(p.expense); Object.assign(ex, o, { receipts: p.expense.keepReceipts || ex.receipts, editedBy: '本部', updatedAt: now }); msave(d); return ex;
+    },
+    hqSaveReceiptReport: () => {
+      hq(); const st = d.stores.find(x => x.storeId === p.storeId); if (!st) throw new Error('店舗が見つかりません');
+      const o = normReceipt({ ...p.report, staff: p.report.staff || '本部' });
+      let r = d.receipts.find(y => y.storeId === st.storeId && y.month === o.month && y.dest === o.dest);
+      if (r) Object.assign(r, o, { editedBy: '本部', updatedAt: now });
+      else { r = { id: uid('R'), storeId: st.storeId, storeName: st.storeName, ...o, receipts: [], editedBy: '本部', createdAt: now, updatedAt: now }; d.receipts.push(r); }
+      msave(d); return r;
     },
     hqLogin: () => { hq(); return { stores: d.stores.map(s => ({ storeId: s.storeId, storeName: s.storeName, active: s.active })) }; },
     hqListSales: () => { hq(); return d.sales.filter(x => x.date.startsWith(p.month) && (!p.storeId || x.storeId === p.storeId)); },
@@ -533,7 +605,6 @@ async function loadSales() {
   catch (e) { el.innerHTML = `<div class="notice err">${esc(e.message)}</div>`; return; }
   const [y, m] = month.split('-').map(Number), days = new Date(y, m, 0).getDate(), today = todayStr();
   const targets = sid ? stores.filter(s => s.storeId === sid) : stores.filter(s => s.active !== false && String(s.active) !== 'FALSE');
-  const key = r => r.storeId + '|' + r.date, have = new Set(salesData.map(key));
   const rows = [], missing = {};
   for (let d = 1; d <= days; d++) {
     const ds = `${month}-${pad(d)}`;
@@ -544,49 +615,86 @@ async function loadSales() {
     });
   }
   const sum = k => salesData.reduce((a, r) => a + toNum(r[k]), 0);
+  const B = salesBySubject(salesData);
   const ngCount = salesData.filter(r => toNum(r.diff) !== 0).length;
   const missCount = Object.values(missing).reduce((a, v) => a + v.length, 0);
-  const allNum = SALES_GROUPS.flatMap(g => g.fields.map(f => [f[0], g.title.slice(0, 2) + '・' + f[1]]));
+  const netOf = (r, c) => SALE_ITEMS.filter(x => x[3] === c).reduce((a, [s, rf]) => a + toNum(r[s]) - toNum(r[rf]), 0);
+  const subRow = (lbl, o, cls = '') => `<tr class="${cls}"><td>${lbl}</td><td class="n">${yen(o.sale)}</td><td class="n ${o.ref ? 'ng' : ''}">${o.ref ? yen(-o.ref) : '−'}</td><td class="n bold">${yen(o.net)}</td></tr>`;
+  const ncol = 11 + RX_FIELDS.length;
   el.innerHTML = `
   <div class="kpis">
-    <div class="kpi"><small>販売合計</small><b>${yen(sum('saleTotal'))}</b></div>
+    <div class="kpi"><small>保険売上（計）※返金控除後</small><b>${yen(B.ins.net)}</b></div>
+    <div class="kpi"><small>保険外売上（計）※返金控除後</small><b>${yen(B.non.net)}</b></div>
     <div class="kpi"><small>入金合計</small><b>${yen(sum('inTotal'))}</b></div>
-    <div class="kpi"><small>うち保険売上</small><b>${yen(sum('insurance'))}</b></div>
     <div class="kpi"><small>客数合計（${RX_FIELDS.map(f => f[1]).join('／')}）</small><b>${sum('rxTotal').toLocaleString()}枚</b><div class="small muted">${RX_FIELDS.map(([k]) => sum(k).toLocaleString()).join('／')}</div></div>
     <div class="kpi ${ngCount ? 'alert' : ''}"><small>差額ありの日報</small><b>${ngCount}件</b></div>
     <div class="kpi ${missCount ? 'alert' : ''}"><small>未提出（今日まで・休業日含む）</small><b>${missCount}件</b></div>
   </div>
-  ${missCount ? `<div class="card missing"><b>未提出の日</b><br>${Object.entries(missing).map(([s, ds]) => `${esc(storeName(s))}：${ds.join(', ')}日`).join('<br>')}</div>` : ''}
+  <div class="grid2" style="margin-bottom:12px">
+    <div class="tbl-wrap"><table class="pl"><thead><tr><th>科目別集計</th><th class="n">売上</th><th class="n">返金</th><th class="n">合計（売上−返金）</th></tr></thead><tbody>
+      ${B.rows.filter(r => r.cls === 'ins').map(r => subRow(`<span style="padding-left:16px">${esc(r.label)}</span>`, r)).join('')}
+      ${subRow('保険売上（計）', B.ins, 'hl')}
+      ${B.rows.filter(r => r.cls === 'non').map(r => subRow(`<span style="padding-left:16px">${esc(r.label)}</span>`, r)).join('')}
+      ${subRow('保険外売上（計）', B.non, 'hl')}
+      ${subRow('総合計', B.all, 'b')}
+    </tbody></table></div>
+    ${missCount ? `<div class="card missing"><b>未提出の日</b><br>${Object.entries(missing).map(([s, ds]) => `${esc(storeName(s))}：${ds.join(', ')}日`).join('<br>')}<p class="hint">「未提出の行を隠す」を外すと、未提出の日を本部で入力できます。</p></div>` : '<div></div>'}
+  </div>
   <label class="flex small" style="margin-bottom:8px"><input type="checkbox" id="hideMiss" checked> 未提出の行を隠す</label>
   <div class="tbl-wrap"><table>
-    <thead><tr><th>日付</th>${sid ? '' : '<th>店舗</th>'}<th class="n">入金合計</th><th class="n">販売合計</th><th class="n">保険</th><th class="n">自費</th><th class="n">OTC・商品</th><th class="n">返金</th><th class="n">差額</th><th class="n">現金過不足</th>${RX_FIELDS.map(f => `<th class="n">${esc(f[1])}</th>`).join('')}<th class="n">客数計</th><th>入力者</th><th>コメント</th></tr></thead>
-    <tbody>${rows.map((r, i) => r._miss
-      ? `<tr class="miss"><td>${r.date.slice(5)}（${dow(r.date)}）</td>${sid ? '' : `<td>${esc(storeName(r.storeId))}</td>`}<td colspan="${11 + RX_FIELDS.length}">未提出</td></tr>`
+    <thead><tr><th>日付</th>${sid ? '' : '<th>店舗</th>'}<th class="n">入金合計</th><th class="n">販売合計</th><th class="n">返金合計</th><th class="n">保険売上（計）</th><th class="n">保険外売上（計）</th><th class="n">差額</th><th class="n">現金過不足</th>${RX_FIELDS.map(f => `<th class="n">${esc(f[1])}</th>`).join('')}<th class="n">客数計</th><th>入力者</th><th>コメント</th></tr></thead>
+    <tbody>${rows.map(r => r._miss
+      ? `<tr class="miss click hidden" data-new="${r.storeId}|${r.date}"><td>${r.date.slice(5)}（${dow(r.date)}）</td>${sid ? '' : `<td>${esc(storeName(r.storeId))}</td>`}<td colspan="${ncol}">未提出　<span class="chip">クリックで本部入力</span></td></tr>`
       : `<tr class="click" data-i="${salesData.indexOf(r)}"><td>${r.date.slice(5)}（${dow(r.date)}）</td>${sid ? '' : `<td>${esc(r.storeName || storeName(r.storeId))}</td>`}
-        <td class="n">${yen(r.inTotal)}</td><td class="n">${yen(r.saleTotal)}</td><td class="n">${yen(r.insurance)}</td><td class="n">${yen(r.selfPay)}</td><td class="n">${yen(toNum(r.otc) + toNum(r.goods))}</td><td class="n">${yen(r.refTotal)}</td>
+        <td class="n">${yen(r.inTotal)}</td><td class="n">${yen(r.saleTotal)}</td><td class="n">${toNum(r.refTotal) ? yen(r.refTotal) : '−'}</td><td class="n">${yen(netOf(r, 'ins'))}</td><td class="n">${yen(netOf(r, 'non'))}</td>
         <td class="n ${toNum(r.diff) ? 'ng' : ''}">${yen(r.diff)}</td><td class="n ${toNum(r.cashOverShort) ? 'ng' : ''}">${toNum(r.cashOverShort) ? yen(r.cashOverShort) : '−'}</td>
-        ${RX_FIELDS.map(([k]) => `<td class="n">${toNum(r[k])}</td>`).join('')}<td class="n">${toNum(r.rxTotal)}</td><td>${esc(r.staff)}</td><td class="cmt" title="${esc(r.comment)}">${esc(r.comment)}</td></tr>`).join('')}</tbody>
-    <tfoot><tr><td>合計</td>${sid ? '' : '<td></td>'}<td class="n">${yen(sum('inTotal'))}</td><td class="n">${yen(sum('saleTotal'))}</td><td class="n">${yen(sum('insurance'))}</td><td class="n">${yen(sum('selfPay'))}</td><td class="n">${yen(sum('otc') + sum('goods'))}</td><td class="n">${yen(sum('refTotal'))}</td><td class="n">${yen(sum('diff'))}</td><td class="n">${yen(sum('cashOverShort'))}</td>${RX_FIELDS.map(([k]) => `<td class="n">${sum(k)}</td>`).join('')}<td class="n">${sum('rxTotal')}</td><td></td><td></td></tr></tfoot>
+        ${RX_FIELDS.map(([k]) => `<td class="n">${toNum(r[k])}</td>`).join('')}<td class="n">${toNum(r.rxTotal)}</td><td>${esc(r.staff)}${r.editedBy ? ' <span class="chip warn" style="font-size:10px;padding:1px 5px">本部修正</span>' : ''}</td><td class="cmt" title="${esc(r.comment)}">${esc(r.comment)}</td></tr>`).join('')}</tbody>
+    <tfoot><tr><td>合計</td>${sid ? '' : '<td></td>'}<td class="n">${yen(sum('inTotal'))}</td><td class="n">${yen(sum('saleTotal'))}</td><td class="n">${yen(sum('refTotal'))}</td><td class="n">${yen(B.ins.net)}</td><td class="n">${yen(B.non.net)}</td><td class="n">${yen(sum('diff'))}</td><td class="n">${yen(sum('cashOverShort'))}</td>${RX_FIELDS.map(([k]) => `<td class="n">${sum(k)}</td>`).join('')}<td class="n">${sum('rxTotal')}</td><td></td><td></td></tr></tfoot>
   </table></div>`;
-  el.querySelectorAll('tr.click').forEach(tr => tr.addEventListener('click', () => salesDetail(salesData[+tr.dataset.i])));
-  el.querySelectorAll('tr.miss').forEach(tr => tr.classList.add('hidden'));
+  el.querySelectorAll('tr[data-i]').forEach(tr => tr.addEventListener('click', () => salesDetail(salesData[+tr.dataset.i])));
+  el.querySelectorAll('tr[data-new]').forEach(tr => tr.addEventListener('click', () => { const [s, d] = tr.dataset.new.split('|'); salesEdit({ storeId: s, date: d }, true); }));
   $('#hideMiss').addEventListener('change', e => el.querySelectorAll('tr.miss').forEach(tr => tr.classList.toggle('hidden', e.target.checked)));
 }
 function salesDetail(r) {
   const dl = (l, v) => `<dt>${esc(l)}</dt><dd>${v}</dd>`;
-  openModal(`<h2>${esc(r.storeName || storeName(r.storeId))}　${r.date}（${dow(r.date)}）</h2>
-    ${SALES_GROUPS.map(g => `<h3 style="margin:14px 0 6px">${esc(g.title)}<span class="tot">${yen(r[g.total])}</span></h3><dl class="dl">${g.fields.map(([k, l]) => dl(l, yen(r[k]))).join('')}</dl>`).join('')}
+  const B = salesBySubject([r]);
+  const sh = openModal(`<div class="between"><h2 style="margin:0">${esc(r.storeName || storeName(r.storeId))}　${r.date}（${dow(r.date)}）</h2><button class="btn sm pri" id="sdEdit">✏️ 修正する</button></div>
+    <h3 style="margin:14px 0 6px">入金<span class="tot">${yen(r.inTotal)}</span></h3><dl class="dl">${SALES_GROUPS[0].fields.map(([k, l]) => dl(l, yen(r[k]))).join('')}</dl>
+    <h3 style="margin:14px 0 6px">科目別（売上／返金／合計）</h3>
+    <table class="pl" style="width:100%"><tbody>${B.rows.map(x => `<tr><td>${esc(x.label)}</td><td class="n">${yen(x.sale)}</td><td class="n">${x.ref ? yen(-x.ref) : '−'}</td><td class="n bold">${yen(x.net)}</td></tr>`).join('')}
+    <tr class="hl"><td>保険売上（計）</td><td class="n">${yen(B.ins.sale)}</td><td class="n">${yen(-B.ins.ref)}</td><td class="n">${yen(B.ins.net)}</td></tr>
+    <tr class="hl"><td>保険外売上（計）</td><td class="n">${yen(B.non.sale)}</td><td class="n">${yen(-B.non.ref)}</td><td class="n">${yen(B.non.net)}</td></tr></tbody></table>
     <h3 style="margin:14px 0 6px">照合</h3><dl class="dl">${dl('差額', `<span class="${toNum(r.diff) ? 'chip err' : 'chip ok'}">${yen(r.diff)}</span>`)}${dl('現金過不足', yen(r.cashOverShort))}</dl>
     <h3 style="margin:14px 0 6px">客数<span class="tot">${toNum(r.rxTotal)}枚</span></h3><dl class="dl">${RX_FIELDS.map(([k, l]) => dl(l, toNum(r[k]) + '枚')).join('')}</dl>
-    <h3 style="margin:14px 0 6px">その他</h3><dl class="dl">${dl('コメント', esc(r.comment).replace(/\n/g, '<br>') || '−')}${dl('入力者', esc(r.staff))}${dl('登録', esc(r.createdAt))}${dl('最終更新', esc(r.updatedAt))}</dl>`);
+    <h3 style="margin:14px 0 6px">その他</h3><dl class="dl">${dl('コメント', esc(r.comment).replace(/\n/g, '<br>') || '−')}${dl('入力者', esc(r.staff))}${dl('登録', esc(r.createdAt))}${dl('最終更新', esc(r.updatedAt) + (r.editedBy ? '（本部修正）' : ''))}</dl>`);
+  sh.querySelector('#sdEdit').addEventListener('click', () => salesEdit(r, false));
+}
+function salesEdit(r, isNew) {
+  const inp = (k, l, money = true) => `<div class="row"><label>${esc(l)}</label><input type="text" class="${money ? 'money' : ''} se" data-k="${k}" value="${toNum(r[k]) ? (money ? toNum(r[k]).toLocaleString() : toNum(r[k])) : ''}" placeholder="0"></div>`;
+  const sh = openModal(`<h2>${isNew ? '日報を本部で入力' : '日報を修正'}：${esc(storeName(r.storeId))}　${r.date}（${dow(r.date)}）</h2>
+    ${SALES_GROUPS.map(g => `<h3 style="margin:12px 0 4px">${esc(g.title)}</h3>${g.fields.map(([k, l]) => inp(k, l)).join('')}`).join('')}
+    <h3 style="margin:12px 0 4px">照合・客数</h3>${inp('cashOverShort', '現金過不足（±）')}${RX_FIELDS.map(([k, l]) => inp(k, l + '（枚）', false)).join('')}
+    <div class="field"><label>コメント</label><textarea id="seCmt">${esc(r.comment || '')}</textarea></div>
+    <div class="field"><label>入力者</label><input type="text" id="seStaff" value="${esc(r.staff || '本部')}"></div>
+    <button class="btn pri block" id="seSave">保存する</button>`);
+  sh.querySelectorAll('input.money').forEach(i => i.addEventListener('blur', () => fmtMoneyInput(i)));
+  sh.querySelector('#seSave').addEventListener('click', async () => {
+    const rep = { date: r.date, comment: sh.querySelector('#seCmt').value, staff: sh.querySelector('#seStaff').value };
+    sh.querySelectorAll('.se').forEach(i => rep[i.dataset.k] = toNum(i.value));
+    loading(true, '保存中…');
+    try { await api('hqSaveSales', { storeId: r.storeId, report: rep }); closeModal(); toast('保存しました', 'ok'); loadSales(); }
+    catch (e) { toast(e.message, 'err'); } finally { loading(false); }
+  });
 }
 function csvSales() {
-  const keys = ['date', 'storeId', 'storeName', ...SALES_GROUPS.flatMap(g => [...g.fields.map(f => f[0]), g.total]), 'diff', 'cashOverShort', ...RX_FIELDS.map(f => f[0]), 'rxTotal', 'staff', 'comment', 'updatedAt'];
-  const labels = { date: '日付', storeId: '店舗ID', storeName: '店舗名', diff: '差額', cashOverShort: '現金過不足', rxTotal: '客数合計', staff: '入力者', comment: 'コメント', updatedAt: '更新日時' };
+  const keys = ['date', 'storeId', 'storeName', ...SALES_GROUPS.flatMap(g => [...g.fields.map(f => f[0]), g.total]), 'insNet', 'nonInsNet', 'diff', 'cashOverShort', ...RX_FIELDS.map(f => f[0]), 'rxTotal', 'staff', 'comment', 'updatedAt'];
+  const labels = { date: '日付', storeId: '店舗ID', storeName: '店舗名', insNet: '保険売上（計）', nonInsNet: '保険外売上（計）', diff: '差額', cashOverShort: '現金過不足', rxTotal: '客数合計', staff: '入力者', comment: 'コメント', updatedAt: '更新日時' };
   SALES_GROUPS.forEach(g => { g.fields.forEach(([k, l]) => labels[k] = g.title + '_' + l); labels[g.total] = g.title + '合計'; });
   RX_FIELDS.forEach(([k, l]) => labels[k] = '客数_' + l);
-  const rows = [...salesData].sort((a, b) => (a.date + a.storeId).localeCompare(b.date + b.storeId));
-  downloadCsv(`売上日報_${$('#fMonth').value}.csv`, [keys.map(k => labels[k]), ...rows.map(r => keys.map(k => r[k]))]);
+  const rows = [...salesData].sort((a, b) => (a.date + a.storeId).localeCompare(b.date + b.storeId)).map(r => ({ ...r, ...calcSales(r) }));
+  const B = salesBySubject(salesData);
+  downloadCsv(`売上日報_${$('#fMonth').value}.csv`, [keys.map(k => labels[k]), ...rows.map(r => keys.map(k => r[k])), [],
+    ['科目別集計', '売上', '返金', '合計'], ...B.rows.map(x => [x.label, x.sale, x.ref, x.net]), ['保険売上（計）', B.ins.sale, B.ins.ref, B.ins.net], ['保険外売上（計）', B.non.sale, B.non.ref, B.non.net], ['総合計', B.all.sale, B.all.ref, B.all.net]]);
 }
 
 /* ===== 経費 ===== */
@@ -626,16 +734,17 @@ function renderExp() {
     <tbody>${list.length ? list.map((x, i) => `<tr class="click" data-i="${i}"><td><span class="chip st-${esc(x.status)}">${esc(x.status)}</span></td><td>${esc(x.payDate)}</td>${sid ? '' : `<td>${esc(x.storeName || storeName(x.storeId))}</td>`}
       <td>${esc(x.payee)}</td><td>${x.account === '不明' ? '<span class="chip err">不明</span>' : esc(x.account)}</td><td class="n">${yen(x.amount)}</td><td>${esc(x.method)}</td>
       <td>${esc(x.payStatus)}${x.advancedBy ? '（' + esc(x.advancedBy) + '）' : ''}</td><td>${esc(x.invoice || '−')}</td><td>${(x.receipts || []).length ? (x.receipts || []).length + '枚' : '<span class="chip warn">なし</span>'}</td>
-      <td>${esc(x.staff)}</td><td class="cmt" title="${esc(x.comment)}">${esc(x.comment)}</td></tr>`).join('') : `<tr><td colspan="12" class="muted">該当する申請はありません</td></tr>`}</tbody>
+      <td>${esc(x.staff)}</td><td class="cmt" title="${esc(x.purpose || x.comment)}">${esc([x.purpose, x.comment].filter(Boolean).join('／'))}</td></tr>`).join('') : `<tr><td colspan="12" class="muted">該当する申請はありません</td></tr>`}</tbody>
   </table></div>`;
   el.querySelectorAll('tr.click').forEach(tr => tr.addEventListener('click', () => expDetail(list[+tr.dataset.i])));
 }
 function expDetail(x) {
   const dl = (l, v) => `<dt>${esc(l)}</dt><dd>${v}</dd>`;
-  const sh = openModal(`<div class="between"><h2 style="margin:0">${esc(x.payee)}</h2><span class="chip st-${esc(x.status)}">${esc(x.status)}</span></div>
+  const sh = openModal(`<div class="between"><h2 style="margin:0">${esc(x.payee)}</h2><span class="flex"><span class="chip st-${esc(x.status)}">${esc(x.status)}</span><button class="btn sm" id="edEdit">✏️ 内容を修正</button></span></div>
     <dl class="dl" style="margin-top:12px">${dl('店舗', esc(x.storeName || storeName(x.storeId)))}${dl('支払日', esc(x.payDate))}${dl('金額', '<b>' + yen(x.amount) + '</b>')}
+    ${isTravel(x.account) ? dl('使った人', esc(x.travelUser)) + dl('交通手段', esc(x.travelMode)) + dl('経路', esc(x.route) + '（' + esc(x.roundTrip) + '）') + dl('乗車賃（片道）', yen(x.fare)) + dl('利用目的', esc(x.purpose)) : ''}
     ${dl('出金方法', esc(x.method))}${dl('支払状況', esc(x.payStatus) + (x.advancedBy ? '（立替：' + esc(x.advancedBy) + '）' : ''))}${dl('インボイス', esc(x.invoice || '−'))}
-    ${dl('コメント', esc(x.comment).replace(/\n/g, '<br>') || '−')}${dl('申請者', esc(x.staff))}${dl('申請日時', esc(x.createdAt))}${x.reviewedAt ? dl('処理日時', esc(x.reviewedAt)) : ''}</dl>
+    ${dl('コメント', esc(x.comment).replace(/\n/g, '<br>') || '−')}${dl('申請者', esc(x.staff))}${dl('申請日時', esc(x.createdAt))}${x.reviewedAt ? dl('処理日時', esc(x.reviewedAt)) : ''}${x.editedBy ? dl('修正', '本部で修正済み（' + esc(x.updatedAt) + '）') : ''}</dl>
     <div class="flex wrap" style="margin:12px 0">${(x.receipts || []).map((u, j) => /^data:image/.test(u) ? `<a href="${esc(u)}" target="_blank"><img src="${esc(u)}" style="height:110px;border-radius:8px;border:1px solid var(--line)"></a>` : `<a class="btn sm" href="${esc(u)}" target="_blank" rel="noopener">📎 領収書${j + 1}を開く</a>`).join('') || '<span class="chip warn">領収書なし</span>'}</div>
     <div class="field"><label for="dAcc">勘定科目（本部で修正可）</label><select id="dAcc">${ACCOUNTS.map(([a]) => `<option ${a === x.account ? 'selected' : ''}>${esc(a)}</option>`).join('')}</select></div>
     <div class="field"><label for="dCmt">本部コメント（差戻し理由など・店舗に表示されます）</label><textarea id="dCmt">${esc(x.hqComment || '')}</textarea></div>
@@ -643,6 +752,7 @@ function expDetail(x) {
       <button class="btn pri" data-s="承認済">承認</button><button class="btn danger" data-s="差戻し">差戻し</button>
       <button class="btn" data-s="精算済">精算済にする</button><button class="btn" data-s="申請中">申請中に戻す</button>
       <button class="btn" data-s="">科目・コメントだけ保存</button></div>`);
+  sh.querySelector('#edEdit').addEventListener('click', () => expEdit(x));
   sh.querySelectorAll('[data-s]').forEach(b => b.addEventListener('click', async () => {
     const s = b.dataset.s, hqComment = sh.querySelector('#dCmt').value.trim(), account = sh.querySelector('#dAcc').value;
     if (s === '差戻し' && !hqComment) return toast('差戻し理由を本部コメントに入力してください', 'err');
@@ -651,12 +761,54 @@ function expDetail(x) {
     try {
       const p = { id: x.id, account, hqComment }; if (s) p.status = s;
       const nx = await api('hqUpdateExpense', p); Object.assign(x, nx);
-      closeModal(); toast('保存しました', 'ok'); renderExp();
+      closeModal(); toast('保存しました', 'ok'); afterExpSave();
     } catch (e) { toast(e.message, 'err'); } finally { loading(false); }
   }));
 }
+function expEdit(x) {
+  const opt = (arr, v) => arr.map(a => `<option ${a === v ? 'selected' : ''}>${esc(a)}</option>`).join('');
+  let keep = (x.receipts || []).slice();
+  const sh = openModal(`<h2>経費申請を修正（本部）</h2>
+    <div class="field"><label>支払日</label><input type="date" id="eeDate" value="${esc(x.payDate)}"></div>
+    <div class="field"><label>勘定科目</label><select id="eeAcc">${opt(ACCOUNTS.map(a => a[0]), x.account)}</select></div>
+    <div id="eeNormal"><div class="field"><label>支払名</label><input type="text" id="eePayee" value="${esc(x.payee)}"></div>
+      <div class="field"><label>金額</label><input type="text" class="money" id="eeAmt" value="${toNum(x.amount).toLocaleString()}"></div>
+      <div class="field"><label>インボイス</label><select id="eeInv"><option></option>${opt([...INVOICE, '対象外'], x.invoice)}</select></div></div>
+    <div id="eeTravel"><div class="field"><label>使った人</label><input type="text" id="eeTU" value="${esc(x.travelUser || '')}"></div>
+      <div class="field"><label>交通手段（電車／バス／その他（タクシー）など）</label><input type="text" id="eeTM" value="${esc(x.travelMode || '電車')}"></div>
+      <div class="field"><label>経路（乗車駅→乗換駅→降車駅）</label><input type="text" id="eeRoute" value="${esc(x.route || '')}" placeholder="北習志野→西船橋→津田沼"></div>
+      <div class="field"><label>片道／往復</label><select id="eeRT">${opt(['片道', '往復'], x.roundTrip || '片道')}</select></div>
+      <div class="field"><label>乗車賃（片道）</label><input type="text" class="money" id="eeFare" value="${toNum(x.fare) ? toNum(x.fare).toLocaleString() : ''}"></div>
+      <div class="field"><label>利用目的</label><input type="text" id="eePur" value="${esc(x.purpose || '')}"></div></div>
+    <div class="field"><label>出金方法</label><select id="eeMethod">${opt(METHODS, x.method)}</select></div>
+    <div class="field"><label>支払状況</label><select id="eePS">${opt(PAY_STATUS, x.payStatus)}</select></div>
+    <div class="field"><label>立替者</label><input type="text" id="eeAdv" value="${esc(x.advancedBy || '')}"></div>
+    <div class="field"><label>コメント</label><textarea id="eeCmt">${esc(x.comment || '')}</textarea></div>
+    <div class="field"><label>申請者</label><input type="text" id="eeStaff" value="${esc(x.staff || '')}"></div>
+    <div class="field"><label>領収書（×で外す）</label><div class="flex wrap" id="eeRc"></div></div>
+    <button class="btn pri block" id="eeSave">保存する</button>`);
+  const rc = () => {
+    sh.querySelector('#eeRc').innerHTML = keep.map((u, i) => `<span class="chip">領収書${i + 1} <a href="${esc(u)}" target="_blank" rel="noopener">開く</a> <button data-x="${i}" style="border:0;background:none;cursor:pointer">×</button></span>`).join('') || '<span class="muted small">なし</span>';
+    sh.querySelectorAll('[data-x]').forEach(b => b.addEventListener('click', () => { keep.splice(+b.dataset.x, 1); rc(); }));
+  };
+  const tg = () => { const t = isTravel(sh.querySelector('#eeAcc').value); sh.querySelector('#eeTravel').classList.toggle('hidden', !t); sh.querySelector('#eeNormal').classList.toggle('hidden', t); };
+  rc(); tg(); sh.querySelector('#eeAcc').addEventListener('change', tg);
+  sh.querySelectorAll('input.money').forEach(i => i.addEventListener('blur', () => fmtMoneyInput(i)));
+  sh.querySelector('#eeSave').addEventListener('click', async () => {
+    const v = id => sh.querySelector(id).value;
+    const e = { id: x.id, payDate: v('#eeDate'), account: v('#eeAcc'), payee: v('#eePayee'), amount: toNum(v('#eeAmt')), invoice: v('#eeInv'),
+      travelUser: v('#eeTU'), travelMode: v('#eeTM'), route: v('#eeRoute'), roundTrip: v('#eeRT'), fare: toNum(v('#eeFare')), purpose: v('#eePur'),
+      method: v('#eeMethod'), payStatus: v('#eePS'), advancedBy: v('#eeAdv'), comment: v('#eeCmt'), staff: v('#eeStaff'), keepReceipts: keep };
+    if (isTravel(e.account)) e.invoice = e.invoice || '対象外';
+    try { normExpense(e); } catch (err) { return toast(err.message, 'err'); }
+    loading(true, '保存中…');
+    try { const nx = await api('hqSaveExpense', { expense: e }); Object.assign(x, nx); closeModal(); toast('修正しました', 'ok'); afterExpSave(); }
+    catch (err) { toast(err.message, 'err'); } finally { loading(false); }
+  });
+}
 function csvExp() {
-  const keys = [['status', '状態'], ['payDate', '支払日'], ['storeId', '店舗ID'], ['storeName', '店舗名'], ['payee', '支払名'], ['account', '勘定科目'], ['amount', '金額'], ['method', '出金方法'], ['payStatus', '支払状況'], ['advancedBy', '立替者'], ['invoice', 'インボイス'], ['comment', 'コメント'], ['staff', '申請者'], ['hqComment', '本部コメント'], ['receipts', '領収書URL'], ['createdAt', '申請日時']];
+  const keys = [['status', '状態'], ['payDate', '支払日'], ['storeId', '店舗ID'], ['storeName', '店舗名'], ['payee', '支払名'], ['account', '勘定科目'], ['amount', '金額'], ['method', '出金方法'], ['payStatus', '支払状況'], ['advancedBy', '立替者'], ['invoice', 'インボイス'],
+    ['travelUser', '交通費_使用者'], ['travelMode', '交通費_手段'], ['route', '交通費_経路'], ['roundTrip', '交通費_片道往復'], ['fare', '交通費_片道運賃'], ['purpose', '交通費_目的'], ['comment', 'コメント'], ['staff', '申請者'], ['hqComment', '本部コメント'], ['receipts', '領収書URL'], ['createdAt', '申請日時']];
   const rows = shownExp().map(x => keys.map(([k]) => k === 'receipts' ? (x.receipts || []).filter(u => !u.startsWith('data:')).join(' ') : x[k]));
   downloadCsv(`経費申請_${expAllPending ? '未処理' : $('#fMonth').value}.csv`, [keys.map(k => k[1]), ...rows]);
 }
@@ -694,13 +846,16 @@ async function loadPettyHq() {
       <p class="hint">確認前の補充も出納帳には記帳済みです。「取消」にすると出納帳から外れます（誤申請用）。</p></div>` : ''}
     <div class="grid2"><div class="tbl-wrap"><table class="ledger"><thead><tr><th>日付</th><th>摘要</th><th class="n">入金</th><th class="n">出金</th><th class="n">残高</th><th>状態</th><th>担当</th></tr></thead><tbody>
       <tr><td></td><td class="bold">前月繰越</td><td></td><td></td><td class="n bold">${yen(L.opening)}</td><td></td><td></td></tr>
-      ${L.rows.map(e => `<tr><td>${esc(e.date)}</td><td>${esc(e.text)}</td><td class="n">${e.inAmt ? yen(e.inAmt) : ''}</td><td class="n">${e.outAmt ? yen(e.outAmt) : ''}</td><td class="n">${yen(e.balance)}</td><td><span class="chip st-${esc(e.status)}">${esc(e.status)}</span></td><td>${esc(e.staff)}</td></tr>`).join('')}
+      ${L.rows.map((e, li) => `<tr class="click" data-li="${li}"><td>${esc(e.date)}</td><td>${esc(e.text)}</td><td class="n">${e.inAmt ? yen(e.inAmt) : ''}</td><td class="n">${e.outAmt ? yen(e.outAmt) : ''}</td><td class="n">${yen(e.balance)}</td><td><span class="chip st-${esc(e.status)}">${esc(e.status)}</span></td><td>${esc(e.staff)}</td></tr>`).join('')}
       <tr><td></td><td class="bold">当月計／次月繰越</td><td class="n bold">${yen(L.inSum)}</td><td class="n bold">${yen(L.outSum)}</td><td class="n bold">${yen(L.closing)}</td><td></td><td></td></tr></tbody></table></div>
     <div class="card"><b>残高の調整を記帳（本部）</b><p class="hint">開始時の残高（期首残高）や、実査で判明した差額の修正に使います。減らすときはマイナスで入力。</p>
       <div class="field"><label>日付</label><input type="date" id="adjDate" value="${todayStr()}"></div>
       <div class="field"><label>金額（±）</label><input type="text" id="adjAmt" class="money" placeholder="例：30000 / -500"></div>
       <div class="field"><label>摘要</label><input type="text" id="adjMemo" placeholder="例：期首残高、実査差額"></div>
       <button class="btn pri block" id="adjBtn">記帳する</button></div></div>`;
+    el.querySelectorAll('tr[data-li]').forEach(tr => tr.addEventListener('click', () => {
+      const e = L.rows[+tr.dataset.li]; if (e.kind === '経費') expDetail(e.ref); else pettyEdit(e.ref);
+    }));
     const upd = async (id, status) => { loading(true); try { await api('hqUpdatePetty', { id, status }); toast('更新しました', 'ok'); loadPettyHq(); } catch (e) { toast(e.message, 'err'); } finally { loading(false); } };
     el.querySelectorAll('[data-ok]').forEach(b => b.addEventListener('click', () => upd(b.dataset.ok, '確認済')));
     el.querySelectorAll('[data-cancel]').forEach(b => b.addEventListener('click', () => confirm('この補充を取消して出納帳から外しますか？') && upd(b.dataset.cancel, '取消')));
@@ -712,6 +867,25 @@ async function loadPettyHq() {
     });
   } catch (e) { el.innerHTML = `<div class="notice err">${esc(e.message)}</div>`; }
 }
+function pettyEdit(x) {
+  const sh = openModal(`<h2>小口現金の記録を修正（${esc(x.type)}）</h2>
+    <div class="field"><label>日付</label><input type="date" id="peDate" value="${esc(x.date)}"></div>
+    <div class="field"><label>金額${x.type === '調整' ? '（±）' : ''}</label><input type="text" class="money" id="peAmt" value="${toNum(x.amount).toLocaleString()}"></div>
+    <div class="field"><label>摘要・引出元</label><input type="text" id="peMemo" value="${esc(x.memo || '')}"></div>
+    <div class="field"><label>状態</label><select id="peSt">${['申請中', '確認済', '取消'].map(v => `<option ${v === x.status ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
+    ${(x.receipts || []).map((u, j) => `<a class="btn sm" href="${esc(u)}" target="_blank" rel="noopener">明細票${j + 1}</a>`).join(' ')}
+    <button class="btn pri block" id="peSave" style="margin-top:12px">保存する</button>`);
+  sh.querySelector('#peAmt').addEventListener('blur', e => fmtMoneyInput(e.target));
+  sh.querySelector('#peSave').addEventListener('click', async () => {
+    const amount = toNum(sh.querySelector('#peAmt').value); if (!amount) return toast('金額を入力してください', 'err');
+    if (x.type === '補充' && amount < 0) return toast('補充はプラスの金額で入力してください', 'err');
+    loading(true, '保存中…');
+    try { await api('hqUpdatePetty', { id: x.id, date: sh.querySelector('#peDate').value, amount, memo: sh.querySelector('#peMemo').value.trim(), status: sh.querySelector('#peSt').value });
+      closeModal(); toast('修正しました', 'ok'); loadPettyHq(); }
+    catch (e) { toast(e.message, 'err'); } finally { loading(false); }
+  });
+}
+const afterExpSave = () => curTab === 'exp' ? renderExp() : showTab(curTab);
 function csvPetty() {
   if (!pettyLedger) return toast('店舗を選んでください', 'err');
   const { L, month, sid } = pettyLedger;
@@ -722,26 +896,40 @@ function csvPetty() {
 /* ===== 月報（PL） ===== */
 let monthlyCache = null;
 const prevMonth = m => { const [y, mm] = m.split('-').map(Number); const d = new Date(y, mm - 2, 1); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; };
+const isSet = v => v !== '' && v !== null && v !== undefined;
 function sumManual(rows, storeId, month) {
-  const o = {}; rows.filter(r => r.month === month && (!storeId || r.storeId === storeId)).forEach(r => MONTHLY_INPUTS.forEach(([k]) => o[k] = (o[k] || 0) + toNum(r[k]))); return o;
+  const vals = {}, entered = {};
+  rows.filter(r => r.month === month && (!storeId || r.storeId === storeId)).forEach(r => MONTHLY_INPUTS.forEach(([k]) => {
+    if (isSet(r[k])) { vals[k] = (vals[k] || 0) + toNum(r[k]); entered[k] = true; }
+  }));
+  return { vals, entered };
 }
 function plLines(P, Q) {
   const names = [...new Set([...P.expLines, ...Q.expLines].map(x => x[0]))];
   const ex = (X, n) => (X.expLines.find(x => x[0] === n) || [0, 0])[1];
+  const m = (label, k, lv) => [label, X => X.M[k], lv, '', k];
   return [
     ['売上高', X => X.revenue, 0, 'b'],
-    ['保険収益', X => X.insRevenue, 1, 'b'], ['窓口負担金（日報）', X => X.windowIns, 2], ['保険請求額（社保）', X => X.claimShaho, 2], ['保険請求額（国保・後期）', X => X.claimKokuho, 2], ['介護保険請求額', X => X.claimKaigo, 2], ['返戻・査定などの調整', X => X.claimAdjust, 2],
-    ['保険外収益', X => X.nonIns, 1, 'b'], ['自費', X => X.selfPay, 2], ['OTC', X => X.otc, 2], ['商品', X => X.goods, 2], ['その他販売', X => X.saleOther, 2], ['返金', X => X.refunds, 2], ['その他収益', X => X.otherIncome, 2],
+    ['保険収益', X => X.insRevenue, 1, 'b'],
+    ['窓口負担金（保険売上・返金控除後）', X => X.windowIns, 2], ['保険売上（自費）（返金控除後）', X => X.insSelf, 2],
+    ['保険請求額（社保）※レセプト報告', X => X.claimShaho, 2], ['保険請求額（国保・後期）※レセプト報告', X => X.claimKokuho, 2], ['介護保険請求額 ※レセプト報告', X => X.claimKaigo, 2],
+    m('返戻・査定などの調整（±）', 'claimAdjust', 2),
+    ['保険外収益', X => X.nonIns, 1, 'b'],
+    ['自費医療（課税）（返金控除後）', X => X.selfPay, 2], ['OTC（返金控除後）', X => X.otc, 2], ['商品（返金控除後）', X => X.goods, 2], ['その他販売（返金控除後）', X => X.saleOther, 2],
+    m('その他収益', 'otherIncome', 2),
     ['売上原価', X => X.cogs, 0, 'b'],
-    ['医薬品購入費', X => X.drug, 1], ['卸請求額', X => X.drugInvoice, 2], ['経費申請分', X => X.drugExp, 2],
-    ['商品仕入', X => X.goodsCost, 1], ['在庫増減による調整', X => X.invChange, 1],
+    ['医薬品購入費', X => X.drug, 1, 'b'], m('卸請求額', 'drugPurchase', 2), ['経費申請分', X => X.drugExp, 2],
+    ['商品仕入', X => X.goodsCost, 1, 'b'], m('請求額', 'goodsPurchase', 2), ['経費申請分', X => X.goodsExp, 2],
+    m('在庫増減（期末−期首）※増加分は原価から控除', 'invChange', 1),
     ['売上総利益（粗利）', X => X.gross, 0, 'hl'],
     ['販売費及び一般管理費', X => X.sga, 0, 'b'],
-    ['人件費', X => X.labor, 1, 'b'], ['給与手当', X => X.salary, 2], ['役員報酬', X => X.execComp, 2], ['法定福利費', X => X.welfareLegal, 2],
-    ['地代家賃', X => X.rent, 1], ['リース料', X => X.lease, 1], ['減価償却費', X => X.depreciation, 1],
+    ['人件費', X => X.labor, 1, 'b'], m('給与手当', 'salary', 2), m('役員報酬', 'execComp', 2), m('法定福利費', 'welfareLegal', 2),
+    m('地代家賃', 'rent', 1), m('リース料', 'lease', 1), m('減価償却費', 'depreciation', 1),
     ...names.map(n => [n + '（経費申請）', X => ex(X, n), 1]),
-    ['その他販管費', X => X.otherSga, 1],
+    m('その他販管費（経費申請以外）', 'otherSga', 1),
     ['営業利益', X => X.op, 0, 'hl'],
+    m('銀行返済額（元金＋利息）', 'loanRepay', 0),
+    ['返済後利益（手残り）', X => X.afterRepay, 0, 'hl'],
   ];
 }
 async function loadMonthly() {
@@ -753,70 +941,124 @@ async function loadMonthly() {
       api('hqListExpenses', { month, storeId: sid, status: '' }), api('hqListExpenses', { month: pm, storeId: sid, status: '' }),
       api('hqListMonthly', { months: [month, pm] }), api('hqListReceiptReports', { months: [month, pm], storeId: sid })]);
     const r1 = rcp.filter(r => r.month === month), r0 = rcp.filter(r => r.month === pm);
-    const man = sumManual(mrows, sid, month), P = computePL(s1, e1, man, r1), Q = computePL(s0, e0, sumManual(mrows, sid, pm), r0);
-    monthlyCache = { P, Q, month, pm, sid, lines: plLines(P, Q), r1 };
-    renderMonthly(man);
+    const man = sumManual(mrows, sid, month), manPrev = sumManual(mrows, sid, pm);
+    const P = computePL(s1, e1, man.vals, r1), Q = computePL(s0, e0, manPrev.vals, r0);
+    monthlyCache = { P, Q, month, pm, sid, lines: plLines(P, Q), r1, s1, e1, man, manPrev };
+    renderMonthly();
   } catch (e) { el.innerHTML = `<div class="notice err">${esc(e.message)}</div>`; }
 }
-function renderMonthly(man) {
-  const { P, Q, month, pm, sid, lines, r1 } = monthlyCache, el = $('#tab-monthly');
+function renderMonthly() {
+  const C = monthlyCache, { P, Q, month, pm, sid, lines, r1, man, manPrev } = C, el = $('#tab-monthly');
+  const f1 = n => n.toFixed(1);
   const tgt = sid ? stores.filter(s => s.storeId === sid) : stores.filter(s => s.active !== false && String(s.active) !== 'FALSE');
-  const rcpCard = `<div class="tbl-wrap" style="margin-bottom:12px"><table><thead><tr><th>レセプト報告（${month.replace('-', '年')}月診療分・期限 ${receiptDeadline(month).slice(5).replace('-', '/')}）</th>${RECEIPT_DEST.map(d => `<th class="n">${d}</th>`).join('')}</tr></thead><tbody>
+  const unset = MONTHLY_INPUTS.filter(([k]) => !man.entered[k]);
+  const rcpCard = `<div class="tbl-wrap" style="margin-bottom:12px"><table><thead><tr><th>レセプト報告（${month.replace('-', '年')}月診療分・期限 ${receiptDeadline(month).slice(5).replace('-', '/')}）<span class="muted small">　クリックで修正・本部入力</span></th>${RECEIPT_DEST.map(d => `<th class="n">${d}</th>`).join('')}</tr></thead><tbody>
     ${tgt.map(s => `<tr><td>${esc(s.storeName)}</td>${RECEIPT_DEST.map(d => { const r = r1.find(x => x.storeId === s.storeId && x.dest === d);
-      return r ? `<td class="n" title="${esc(r.staff)} ${esc(r.updatedAt)}${r.count ? ' ' + r.count + '件' : ''}">${yen(r.amount)}${(r.receipts || []).filter(u => !u.startsWith('data:')).map(u => ` <a href="${esc(u)}" target="_blank" rel="noopener">📎</a>`).join('')}</td>` : (d === '介護' ? '<td class="n muted">−</td>' : `<td class="n"><span class="chip ${todayStr() > receiptDeadline(month) ? 'err' : ''}">未報告</span></td>`); }).join('')}</tr>`).join('')}
+      return `<td class="n click" data-rs="${esc(s.storeId)}|${d}">` + (r ? `${yen(r.amount)}${r.editedBy ? ' <span class="chip warn" style="font-size:10px;padding:1px 5px">本部</span>' : ''}${(r.receipts || []).filter(u => !u.startsWith('data:')).map(u => ` <a href="${esc(u)}" target="_blank" rel="noopener">📎</a>`).join('')}`
+        : (d === '介護' ? '<span class="muted">−</span>' : `<span class="chip ${todayStr() > receiptDeadline(month) ? 'err' : ''}">未報告</span>`)) + '</td>'; }).join('')}</tr>`).join('')}
     </tbody></table></div>`;
-  const f1 = n => n.toFixed(1), diffCell = (a, b) => { const d = a - b; return `<td class="n ${d < 0 ? 'neg' : ''}">${d === 0 ? '−' : (d > 0 ? '+' : '') + yen(d).replace('−', '-')}</td>`; };
-  const rate = (v, r) => r ? f1(v / r * 100) + '%' : '−';
-  const noManual = !MONTHLY_INPUTS.some(([k]) => toNum(man[k]));
-  const rxRow = (label, a, b, unit = '枚') => `<tr><td>${label}</td><td class="n">${a.toLocaleString()}${unit}</td><td class="n">${b.toLocaleString()}${unit}</td><td class="n">${a - b > 0 ? '+' : ''}${(a - b).toLocaleString()}</td></tr>`;
+  const rxRow = (label, a, b) => `<tr><td>${label}</td><td class="n">${a.toLocaleString()}枚</td><td class="n">${b.toLocaleString()}枚</td><td class="n">${a - b > 0 ? '+' : ''}${(a - b).toLocaleString()}</td></tr>`;
+  const fixedKeys = MONTHLY_INPUTS.filter(x => x[4]).map(x => x[0]);
   el.innerHTML = `
   <div class="between" style="margin-bottom:10px"><h2 style="margin:0">${month.replace('-', '年')}月 月報　${esc(sid ? storeName(sid) : '全店合計')}</h2><button class="btn sm noprint" onclick="print()">🖨 印刷・PDF</button></div>
   ${P.pendingExp || P.unknownExp ? `<div class="notice noprint">${P.pendingExp ? `未承認の経費申請が ${P.pendingExp}件 含まれています。` : ''}${P.unknownExp ? `科目「不明」の経費 ${yen(P.unknownExp)} があります（経費タブで振り分けてください）。` : ''}</div>` : ''}
-  ${noManual ? `<div class="notice info noprint">医薬品購入費・人件費などの手入力項目が未入力です。右の欄から入力してください（保険請求額は店舗のレセプト報告から自動反映）。</div>` : ''}
   ${rcpCard}
   <div class="kpis">
     <div class="kpi"><small>処方箋枚数（営業${P.days}日）</small><b>${P.rx.total.toLocaleString()}枚</b><div class="small muted">前月 ${Q.rx.total.toLocaleString()}枚／1日平均 ${f1(P.avgRx)}枚</div></div>
     <div class="kpi"><small>集中率（${esc(RX_FIELDS[0][1])}）</small><b>${f1(P.conc)}%</b><div class="small muted">前月 ${f1(Q.conc)}%</div></div>
-    <div class="kpi"><small>売上高</small><b>${yen(P.revenue)}</b><div class="small muted">前月 ${yen(Q.revenue)}</div></div>
+    <div class="kpi"><small>売上高</small><b id="kRev">${yen(P.revenue)}</b><div class="small muted">前月 ${yen(Q.revenue)}</div></div>
     <div class="kpi"><small>処方箋単価（保険収益÷枚数）</small><b>${yen(Math.round(P.unitIns))}</b><div class="small muted">前月 ${yen(Math.round(Q.unitIns))}</div></div>
-    <div class="kpi"><small>粗利率／原価率</small><b>${f1(P.grossRate)}%</b><div class="small muted">原価率 ${f1(P.cogsRate)}%</div></div>
-    <div class="kpi"><small>人件費率</small><b>${f1(P.laborRate)}%</b><div class="small muted">前月 ${f1(Q.laborRate)}%</div></div>
-    <div class="kpi ${P.op < 0 ? 'alert' : ''}"><small>営業利益（率）</small><b>${yen(P.op)}</b><div class="small muted">${f1(P.opRate)}%／前月 ${yen(Q.op)}</div></div>
+    <div class="kpi"><small>粗利率／人件費率</small><b id="kGross">${f1(P.grossRate)}%</b><div class="small muted" id="kLabor">人件費率 ${f1(P.laborRate)}%</div></div>
+    <div class="kpi ${P.op < 0 ? 'alert' : ''}"><small>営業利益（率）</small><b id="kOp">${yen(P.op)}</b><div class="small muted" id="kOpR">${f1(P.opRate)}%／前月 ${yen(Q.op)}</div></div>
+    <div class="kpi ${P.afterRepay < 0 ? 'alert' : ''}"><small>返済後利益（手残り）</small><b id="kAfter">${yen(P.afterRepay)}</b><div class="small muted">前月 ${yen(Q.afterRepay)}</div></div>
   </div>
-  <div class="grid2">
-    <div>
-      <div class="tbl-wrap"><table class="pl"><thead><tr><th>科目</th><th class="n">当月</th><th class="n">売上比</th><th class="n">前月（${pm.slice(5)}月）</th><th class="n">増減</th></tr></thead><tbody>
-      ${lines.map(([l, f, lv, cls]) => { const a = f(P), b = f(Q); if (lv === 2 && !a && !b) return ''; return `<tr class="${cls || ''}"><td class="l${lv}">${esc(l)}</td><td class="n ${a < 0 ? 'neg' : ''}">${yen(a)}</td><td class="n">${rate(a, P.revenue)}</td><td class="n">${yen(b)}</td>${diffCell(a, b)}</tr>`; }).join('')}
-      </tbody></table></div>
-      <div class="tbl-wrap" style="margin-top:12px"><table><thead><tr><th>処方箋・客数</th><th class="n">当月</th><th class="n">前月</th><th class="n">増減</th></tr></thead><tbody>
-        ${RX_FIELDS.map(([k, l]) => rxRow(esc(l), P.rx[k], Q.rx[k])).join('')}${rxRow('<b>合計</b>', P.rx.total, Q.rx.total)}
-        <tr><td>集中率（${esc(RX_FIELDS[0][1])}÷全処方箋×100）</td><td class="n">${f1(P.conc)}%</td><td class="n">${f1(Q.conc)}%</td><td class="n">${f1(P.conc - Q.conc)}pt</td></tr>
-        <tr><td>営業日数（日報提出日）</td><td class="n">${P.days}日</td><td class="n">${Q.days}日</td><td></td></tr>
-        <tr><td>1日平均処方箋枚数</td><td class="n">${f1(P.avgRx)}枚</td><td class="n">${f1(Q.avgRx)}枚</td><td></td></tr>
-        <tr><td>現金過不足（日報合計）</td><td class="n">${yen(P.cashOverShort)}</td><td class="n">${yen(Q.cashOverShort)}</td><td></td></tr>
-      </tbody></table></div>
-      <p class="hint">保険請求額は店舗のレセプト報告（診療月ベース）から反映。保険外収益は返金を差し引いた額。経費は差戻しを除く当月支払日分（申請中を含む）。売上原価＝医薬品購入費＋商品仕入−在庫増加額。</p>
-    </div>
-    <div class="card minp noprint"><b>${month.replace('-', '年')}月の手入力項目</b>
-      ${sid ? MONTHLY_INPUTS.map(([k, l, g, h]) => `<div class="field"><label for="mi_${k}">${esc(l)} <span class="chip" style="font-size:10px;padding:1px 6px">${g}</span></label>
-        <input type="text" class="money" id="mi_${k}" data-k="${k}" value="${toNum(man[k]) ? toNum(man[k]).toLocaleString() : ''}" placeholder="0">${h ? `<div class="hint">${esc(h)}</div>` : ''}</div>`).join('')
-        + '<button class="btn pri block" id="miSave">保存して再計算</button>'
-        : '<p class="small muted">全店合計は各店舗の入力値の合計です。入力するときは上のプルダウンで店舗を選んでください。</p>'}
-    </div>
-  </div>`;
-  el.querySelectorAll('.minp input.money').forEach(i => i.addEventListener('blur', () => fmtMoneyInput(i)));
-  if (sid) $('#miSave').addEventListener('click', async () => {
-    const values = {}; el.querySelectorAll('.minp input[data-k]').forEach(i => values[i.dataset.k] = toNum(i.value));
+  ${sid ? `<div class="flex wrap noprint" style="margin-bottom:8px">
+      ${unset.length ? `<span class="chip warn">未入力 ${unset.length}項目（黄色の欄）</span>` : '<span class="chip ok">手入力項目はすべて入力済み</span>'}
+      <button class="btn sm" id="cpFixed">前月の固定費をコピー（${MONTHLY_INPUTS.filter(x => x[4]).map(x => x[1].replace(/（.*）/, '')).join('・')}）</button>
+      <span style="flex:1"></span><button class="btn sm pri" id="miSave">入力内容を保存</button></div>`
+    : `<div class="notice info noprint">全店合計の手入力項目は各店舗の合計です。入力・修正は上のプルダウンで店舗を選んでください。${unset.length ? `（どの店舗も未入力の項目：${unset.map(x => x[1]).join('、')}）` : ''}</div>`}
+  <div class="tbl-wrap"><table class="pl"><thead><tr><th>科目</th><th class="n" style="min-width:150px">当月</th><th class="n">売上比</th><th class="n">前月（${pm.slice(5)}月）</th><th class="n">増減</th></tr></thead><tbody>
+  ${lines.map(([l, f, lv, cls, mk], i) => {
+    const a = f(P), b = f(Q);
+    if (!mk && lv === 2 && !a && !b) return '';
+    let cur = `<td class="n ${a < 0 ? 'neg' : ''}" data-v="${i}">${yen(a)}</td>`;
+    if (mk && sid) {
+      const def = MONTHLY_INPUTS.find(x => x[0] === mk);
+      cur = `<td class="n ${man.entered[mk] ? '' : 'unset'}" data-cell="${mk}"><input type="text" class="money pin" data-k="${mk}" value="${man.entered[mk] ? toNum(man.vals[mk]).toLocaleString() : ''}" placeholder="未入力" title="${esc(def[3])}">
+        ${def[4] && manPrev.entered[mk] ? `<button class="btn sm cp1 noprint" data-k="${mk}" title="前月の値をコピー">前月</button>` : ''}</td>`;
+    } else if (mk && !man.entered[mk]) cur = `<td class="n unset" data-v="${i}">未入力</td>`;
+    return `<tr class="${cls || ''}"><td class="l${lv}">${esc(l)}${mk ? ' <span class="chip noprint" style="font-size:10px;padding:1px 5px">手入力</span>' : ''}</td>${cur}<td class="n" data-r="${i}">${P.revenue ? f1(a / P.revenue * 100) + '%' : '−'}</td><td class="n">${yen(b)}</td><td class="n" data-d="${i}"></td></tr>`;
+  }).join('')}
+  </tbody></table></div>
+  <div class="tbl-wrap" style="margin-top:12px;max-width:640px"><table><thead><tr><th>処方箋・客数</th><th class="n">当月</th><th class="n">前月</th><th class="n">増減</th></tr></thead><tbody>
+    ${RX_FIELDS.map(([k, l]) => rxRow(esc(l), P.rx[k], Q.rx[k])).join('')}${rxRow('<b>合計</b>', P.rx.total, Q.rx.total)}
+    <tr><td>集中率（${esc(RX_FIELDS[0][1])}÷全処方箋×100）</td><td class="n">${f1(P.conc)}%</td><td class="n">${f1(Q.conc)}%</td><td class="n">${f1(P.conc - Q.conc)}pt</td></tr>
+    <tr><td>営業日数（日報提出日）</td><td class="n">${P.days}日</td><td class="n">${Q.days}日</td><td></td></tr>
+    <tr><td>1日平均処方箋枚数</td><td class="n">${f1(P.avgRx)}枚</td><td class="n">${f1(Q.avgRx)}枚</td><td></td></tr>
+    <tr><td>現金過不足（日報合計）</td><td class="n">${yen(P.cashOverShort)}</td><td class="n">${yen(Q.cashOverShort)}</td><td></td></tr>
+  </tbody></table></div>
+  <p class="hint">売上は科目ごとに返金を差し引いた額。保険請求額は店舗のレセプト報告（診療月ベース）。経費は差戻しを除く当月支払日分（申請中を含む）。売上原価＝医薬品購入費＋商品仕入−在庫増加額。銀行返済額は会計上の費用ではありませんが、手元に残る利益の目安として営業利益から差し引いています。</p>`;
+  updateDiffs(P);
+  el.querySelectorAll('td[data-rs]').forEach(td => td.addEventListener('click', e => { if (e.target.tagName === 'A') return; const [s, d] = td.dataset.rs.split('|'); rcpEdit(s, d); }));
+  if (!sid) return;
+  const recalc = () => {
+    const vals = {}; MONTHLY_INPUTS.forEach(([k]) => { vals[k] = man.vals[k]; });
+    el.querySelectorAll('input.pin').forEach(i => { vals[i.dataset.k] = i.value.trim() === '' ? 0 : toNum(i.value); i.closest('td').classList.toggle('unset', i.value.trim() === ''); });
+    const NP = computePL(C.s1, C.e1, vals, C.r1);
+    lines.forEach(([, f], i) => {
+      const a = f(NP), v = el.querySelector(`[data-v="${i}"]`), r = el.querySelector(`[data-r="${i}"]`);
+      if (v) { v.textContent = yen(a); v.classList.toggle('neg', a < 0); }
+      if (r) r.textContent = NP.revenue ? f1(a / NP.revenue * 100) + '%' : '−';
+    });
+    updateDiffs(NP);
+    $('#kRev').textContent = yen(NP.revenue); $('#kGross').textContent = f1(NP.grossRate) + '%'; $('#kLabor').textContent = '人件費率 ' + f1(NP.laborRate) + '%';
+    $('#kOp').textContent = yen(NP.op); $('#kOpR').textContent = `${f1(NP.opRate)}%／前月 ${yen(Q.op)}`; $('#kAfter').textContent = yen(NP.afterRepay);
+  };
+  el.querySelectorAll('input.pin').forEach(i => { i.addEventListener('input', recalc); i.addEventListener('blur', () => fmtMoneyInput(i)); });
+  const copyPrev = k => { const i = el.querySelector(`input.pin[data-k="${k}"]`); if (i && manPrev.entered[k]) i.value = toNum(manPrev.vals[k]).toLocaleString(); };
+  el.querySelectorAll('.cp1').forEach(b => b.addEventListener('click', () => { copyPrev(b.dataset.k); recalc(); }));
+  $('#cpFixed').addEventListener('click', () => {
+    const ks = fixedKeys.filter(k => manPrev.entered[k]);
+    if (!ks.length) return toast('前月に入力済みの固定費がありません', 'err');
+    ks.forEach(copyPrev); recalc(); toast(`${ks.length}項目を前月からコピーしました（保存を押してください）`);
+  });
+  $('#miSave').addEventListener('click', async () => {
+    const values = {}; MONTHLY_INPUTS.forEach(([k]) => values[k] = man.entered[k] ? man.vals[k] : '');
+    el.querySelectorAll('input.pin').forEach(i => values[i.dataset.k] = i.value.trim() === '' ? '' : toNum(i.value));
     loading(true, '保存中…');
     try { await api('hqSaveMonthly', { storeId: sid, month, values }); toast('保存しました', 'ok'); loadMonthly(); }
     catch (e) { toast(e.message, 'err'); } finally { loading(false); }
   });
 }
+function updateDiffs(NP) {
+  const { Q, lines } = monthlyCache;
+  lines.forEach(([, f], i) => {
+    const td = document.querySelector(`#tab-monthly [data-d="${i}"]`); if (!td) return;
+    const d = f(NP) - f(Q); td.textContent = d === 0 ? '−' : (d > 0 ? '+' : '-') + yen(Math.abs(d)); td.classList.toggle('neg', d < 0);
+  });
+}
+function rcpEdit(storeId, dest) {
+  const { month, r1 } = monthlyCache, r = r1.find(x => x.storeId === storeId && x.dest === dest) || {};
+  const sh = openModal(`<h2>レセプト報告：${esc(storeName(storeId))}　${month.replace('-', '年')}月診療分　${dest}</h2>
+    <div class="field"><label>請求金額</label><input type="text" class="money" id="reAmt" value="${toNum(r.amount) ? toNum(r.amount).toLocaleString() : ''}"></div>
+    <div class="field"><label>件数（任意）</label><input type="text" id="reCnt" value="${r.count || ''}"></div>
+    <div class="field"><label>コメント</label><input type="text" id="reCmt" value="${esc(r.comment || '')}"></div>
+    ${r.staff ? `<p class="small muted">報告者：${esc(r.staff)}（${esc(r.updatedAt)}）</p>` : ''}
+    <button class="btn pri block" id="reSave">保存する</button>`);
+  sh.querySelector('#reAmt').addEventListener('blur', e => fmtMoneyInput(e.target));
+  sh.querySelector('#reSave').addEventListener('click', async () => {
+    const report = { month, dest, amount: toNum(sh.querySelector('#reAmt').value), count: toNum(sh.querySelector('#reCnt').value), comment: sh.querySelector('#reCmt').value, staff: r.staff || '本部' };
+    try { normReceipt(report); } catch (e) { return toast(e.message, 'err'); }
+    loading(true, '保存中…');
+    try { await api('hqSaveReceiptReport', { storeId, report }); closeModal(); toast('保存しました', 'ok'); loadMonthly(); }
+    catch (e) { toast(e.message, 'err'); } finally { loading(false); }
+  });
+}
 function csvMonthly() {
   if (!monthlyCache) return;
-  const { P, Q, month, pm, sid, lines } = monthlyCache;
-  const rows = [['科目', `${month}`, '売上比(%)', `${pm}`, '増減']];
-  lines.forEach(([l, f, lv]) => { const a = f(P), b = f(Q); if (lv === 2 && !a && !b) return; rows.push(['　'.repeat(lv) + l, a, P.revenue ? (a / P.revenue * 100).toFixed(1) : '', b, a - b]); });
+  const { P, Q, month, pm, sid, lines, man } = monthlyCache;
+  const rows = [['科目', `${month}`, '売上比(%)', `${pm}`, '増減', '備考']];
+  lines.forEach(([l, f, lv, , mk]) => { const a = f(P), b = f(Q); if (!mk && lv === 2 && !a && !b) return; rows.push(['　'.repeat(lv) + l, a, P.revenue ? (a / P.revenue * 100).toFixed(1) : '', b, a - b, mk && !man.entered[mk] ? '未入力' : '']); });
   rows.push([], ['処方箋・客数', month, '', pm, '増減']);
   RX_FIELDS.forEach(([k, l]) => rows.push([l, P.rx[k], '', Q.rx[k], P.rx[k] - Q.rx[k]]));
   rows.push(['処方箋合計', P.rx.total, '', Q.rx.total, P.rx.total - Q.rx.total], ['集中率(%)', P.conc.toFixed(1), '', Q.conc.toFixed(1), ''],
