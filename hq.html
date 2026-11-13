@@ -183,6 +183,20 @@ const SALES_GROUPS = [
   { title: '販売商品', fields: SALE_ITEMS.map(x => [x[0], x[2]]), total: 'saleTotal' },
   { title: '返金対応', fields: SALE_ITEMS.map(x => [x[1], x[2]]), total: 'refTotal' },
 ];
+// 各項目の入力説明（項目をタップすると表示）
+const SALES_HINTS = {
+  cash: 'レジ金。点検レシートの「現金」欄の金額',
+  cashless: '点検レシートのクレジット・電子マネー・QRの合計',
+  receivable: '売掛（後日支払いの患者は含まない。支払い時にレジ登録）',
+  inOther: '上のどれにも当てはまらない、分類が不明な場合に使用',
+  insurance: '保険調剤にかかる自己負担分（一番大きい保険売上の金額）',
+  insSelf: '保険証忘れなどで一時的に自費となった会計',
+  selfPay: '保険適応外の自費処方箋の代金（一時自費の会計は含まない）',
+  otc: '処方箋以外の医薬品（第〇類などの指定があるもの）',
+  goods: 'OTC以外の商品すべて',
+  saleOther: '上のどれにも当てはまらない、分類が不明な場合に使用',
+};
+SALE_ITEMS.forEach(([s, rf, l]) => { SALES_HINTS[rf] = `「${l}」を返金した金額。${SALES_HINTS[s] ? '対象：' + SALES_HINTS[s] : ''}`; });
 const RX_FIELDS = [['rxEndo', '主クリニック'], ['rxHome', '在宅'], ['rxOther', '面処方']];
 
 function calcSales(r) {
@@ -670,7 +684,7 @@ function salesDetail(r) {
   sh.querySelector('#sdEdit').addEventListener('click', () => salesEdit(r, false));
 }
 function salesEdit(r, isNew) {
-  const inp = (k, l, money = true) => `<div class="row"><label>${esc(l)}</label><input type="text" class="${money ? 'money' : ''} se" data-k="${k}" value="${toNum(r[k]) ? (money ? toNum(r[k]).toLocaleString() : toNum(r[k])) : ''}" placeholder="0"></div>`;
+  const inp = (k, l, money = true) => `<div class="row" title="${esc(SALES_HINTS[k] || '')}"><label>${esc(l)}${SALES_HINTS[k] ? ' <span class="muted small" title="${esc(SALES_HINTS[k])}">ⓘ</span>' : ''}</label><input type="text" class="${money ? 'money' : ''} se" data-k="${k}" value="${toNum(r[k]) ? (money ? toNum(r[k]).toLocaleString() : toNum(r[k])) : ''}" placeholder="0"></div>`;
   const sh = openModal(`<h2>${isNew ? '日報を本部で入力' : '日報を修正'}：${esc(storeName(r.storeId))}　${r.date}（${dow(r.date)}）</h2>
     ${SALES_GROUPS.map(g => `<h3 style="margin:12px 0 4px">${esc(g.title)}</h3>${g.fields.map(([k, l]) => inp(k, l)).join('')}`).join('')}
     <h3 style="margin:12px 0 4px">照合・客数</h3>${inp('cashOverShort', '現金過不足（±）')}${RX_FIELDS.map(([k, l]) => inp(k, l + '（枚）', false)).join('')}
